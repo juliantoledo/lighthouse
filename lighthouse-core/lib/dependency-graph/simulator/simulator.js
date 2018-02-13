@@ -6,6 +6,7 @@
 'use strict';
 
 const Node = require('../node');
+const URL = require('../../url-shim');
 const TcpConnection = require('./tcp-connection');
 const emulation = require('../../emulation').settings;
 
@@ -25,18 +26,6 @@ const DEFAULT_LAYOUT_TASK_MULTIPLIER = DEFAULT_CPU_TASK_MULTIPLIER / 2;
 const DEFAULT_MAXIMUM_CPU_TASK_DURATION = 10000;
 
 const TLS_SCHEMES = ['https', 'wss'];
-
-function groupBy(items, keyFunc) {
-  const grouped = new Map();
-  items.forEach(item => {
-    const key = keyFunc(item);
-    const group = grouped.get(key) || [];
-    group.push(item);
-    grouped.set(key, group);
-  });
-
-  return grouped;
-}
 
 const NodeState = {
   NotReadyToStart: 0,
@@ -61,6 +50,7 @@ class Simulator {
         maximumConcurrentRequests: DEFAULT_MAXIMUM_CONCURRENT_REQUESTS,
         cpuTaskMultiplier: DEFAULT_CPU_TASK_MULTIPLIER,
         layoutTaskMultiplier: DEFAULT_LAYOUT_TASK_MULTIPLIER,
+        latencyByOrigin: new Map(),
       },
       options
     );
@@ -68,6 +58,7 @@ class Simulator {
     this._rtt = this._options.rtt;
     this._throughput = this._options.throughput;
     this._fallbackTTFB = this._options.fallbackTTFB;
+    this._latencyByOrigin = this._options.latencyByOrigin;
     this._maximumConcurrentRequests = Math.min(
       TcpConnection.maximumSaturatedConnections(this._rtt, this._throughput),
       this._options.maximumConcurrentRequests
@@ -107,6 +98,7 @@ class Simulator {
     const recordsByConnection = groupBy(this._networkRecords, record => record.connectionId);
 
     for (const [connectionId, records] of recordsByConnection.entries()) {
+      console.log(new URL(records[0].url).origin);
       const isTLS = TLS_SCHEMES.includes(records[0].parsedURL.scheme);
       const isH2 = records[0].protocol === 'h2';
 
@@ -158,6 +150,14 @@ class Simulator {
    */
   _numberInProgress(type) {
     return this._numberInProgressByType.get(type) || 0;
+  }
+
+  /**
+   * @param {!WebInspector.NetworkRequest} record
+   * @return {?TcpConnection}
+   */
+  _getAvailableConnectionForRecord(record) {
+
   }
 
   /**
