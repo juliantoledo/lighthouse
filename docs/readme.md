@@ -14,10 +14,11 @@ const chromeLauncher = require('chrome-launcher');
 function launchChromeAndRunLighthouse(url, opts, config = null) {
   return chromeLauncher.launch({chromeFlags: opts.chromeFlags}).then(chrome => {
     opts.port = chrome.port;
-    return lighthouse(url, opts, config).then(results =>
-      // Beware that `results.artifacts` is not part of the CLI response and can be quite large (~50MB+)
-      // `delete results.artifacts;` before saving results if you do not need to use the artifacts
-      chrome.kill().then(() => results));
+    return lighthouse(url, opts, config).then(results => {
+      // The gathered artifacts are typically removed they can be quite large (~50MB+)
+      delete results.artifacts;
+      return chrome.kill().then(() => results)
+    });
   });
 }
 
