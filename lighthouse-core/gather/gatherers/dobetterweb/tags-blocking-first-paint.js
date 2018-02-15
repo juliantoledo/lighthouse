@@ -21,7 +21,7 @@
 
 const Gatherer = require('../gatherer');
 
-/* global document,window */
+/* global document,window,HTMLLinkElement */
 
 function installMediaListener() {
   window.___linkMediaChanges = [];
@@ -57,7 +57,8 @@ function collectTagsThatBlockFirstPaint() {
           // Filter stylesheet/HTML imports that block rendering.
           // https://www.igvita.com/2012/06/14/debunking-responsive-css-performance-myths/
           // https://www.w3.org/TR/html-imports/#dfn-import-async-attribute
-          const blockingStylesheet = tag.rel === 'stylesheet' && window.matchMedia(tag.media).matches && !tag.disabled;
+          const blockingStylesheet =
+            tag.rel === 'stylesheet' && window.matchMedia(tag.media).matches && !tag.disabled;
           const blockingImport = tag.rel === 'import' && !tag.hasAttribute('async');
           return blockingStylesheet || blockingImport;
         })
@@ -123,7 +124,7 @@ class TagsBlockingFirstPaint extends Gatherer {
       return tags.reduce((prev, tag) => {
         const request = requests[tag.url];
         if (request && !request.isLinkPreload) {
-          const nonMatchingMediaChangeTimes = tag.mediaChanges
+          const nonMatchingMediaChangeTimes = (tag.mediaChanges || [])
             .filter(change => !change.matches)
             .map(change => change.time);
           const earliestNonBlockingTime = Math.min(...nonMatchingMediaChangeTimes);
