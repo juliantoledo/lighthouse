@@ -6,9 +6,10 @@
 'use strict';
 
 const Audit = require('./audit');
-const Util = require('../report/v2/renderer/util.js');
-const LoadSimulator = require('../lib/dependency-graph/simulator/simulator.js');
-const Node = require('../lib/dependency-graph/node.js');
+const Util = require('../report/v2/renderer/util');
+const LoadSimulator = require('../lib/dependency-graph/simulator/simulator');
+const NetworkAnalyzer = require('../lib/dependency-graph/simulator/network-analyzer');
+const Node = require('../lib/dependency-graph/node');
 const WebInspector = require('../lib/web-inspector');
 
 // Parameters (in ms) for log-normal CDF scoring. To see the curve:
@@ -27,13 +28,13 @@ const COEFFICIENTS = {
   },
   FMP: {
     intercept: 1532,
-    optimistic: -.30,
+    optimistic: -0.3,
     pessimistic: 1.33,
   },
   TTCI: {
     intercept: 1582,
-    optimistic: .97,
-    pessimistic: .49,
+    optimistic: 0.97,
+    pessimistic: 0.49,
   },
 };
 
@@ -69,6 +70,34 @@ class PredictivePerf extends Audit {
     });
 
     return scriptUrls;
+  }
+
+  /**
+   * @param {!Node} dependencyGraph
+   * @return {!Object}
+   */
+  static computeOptions(dependencyGraph) {
+    const records = [];
+    dependencyGraph.traverse(node => {
+      if (node.type === Node.TYPES.NETWORK) records.push(node.record);
+    });
+
+    const rttSummaries = Array.from(NetworkAnalyzer.estimateRTTByOrigin(records).entries());
+    const rttByOrigin = new Map(rttSummaries.map(item => [item[0], item[1].min]));
+    const responseTimeSummaries = NetworkAnalyzer.estimateServerResponseTimeByOrigin(records, {
+      rttByOrigin,
+    });
+
+    const baselineRtt = Math.min(...Array.from(rttByOrigin.values()));
+    const additionalRttByOrigin = new Map(
+      Array.from(rttByOrigin.entries()).map(item => [item[0], item[1] - baselineRtt])
+    );
+
+    const serverResponseTimeByOrigin = new Map(
+      Array.from(responseTimeSummaries.entries()).map(item => [item[0], item[1].median])
+    );
+
+    return {additionalRttByOrigin, serverResponseTimeByOrigin};
   }
 
   /**
@@ -173,9 +202,10 @@ class PredictivePerf extends Audit {
       // Include all scripts and high priority requests, exclude all images
       const isImage = node.record._resourceType === WebInspector.resourceTypes.Image;
       const isScript = node.record._resourceType === WebInspector.resourceTypes.Script;
-      return !isImage && (isScript ||
-          node.record.priority() === 'High' ||
-          node.record.priority() === 'VeryHigh');
+      return (
+        !isImage &&
+        (isScript || node.record.priority() === 'High' || node.record.priority() === 'VeryHigh')
+      );
     });
   }
 
@@ -191,12 +221,14 @@ class PredictivePerf extends Audit {
    * @param {!Map<!Node, {startTime, endTime}>} nodeTiming
    * @return {number}
    */
-  static getLastLongTaskEndTime(nodeTiming) {
+  static getLastLongTaskEndTime(nodeTiming, duration = 50) {
     return Array.from(nodeTiming.entries())
-        .filter(([node, timing]) => node.type === Node.TYPES.CPU &&
-            timing.endTime - timing.startTime > 50)
-        .map(([_, timing]) => timing.endTime)
-        .reduce((max, x) => Math.max(max, x), 0);
+      .filter(
+        ([node, timing]) =>
+          node.type === Node.TYPES.CPU && timing.endTime - timing.startTime > duration
+      )
+      .map(([_, timing]) => timing.endTime)
+      .reduce((max, x) => Math.max(max, x), 0);
   }
 
   /**
@@ -220,9 +252,14 @@ class PredictivePerf extends Audit {
       };
 
       const values = {};
+      const options = PredictivePerf.computeOptions(graph);
       Object.keys(graphs).forEach(key => {
-        const estimate = new LoadSimulator(graphs[key]).simulate();
-        const lastLongTaskEnd = PredictivePerf.getLastLongTaskEndTime(estimate.nodeTiming);
+        const estimate = new LoadSimulator(graphs[key], options).simulate();
+        const longTaskThreshold = /optimistic/.test(key) ? 100 : 50;
+        const lastLongTaskEnd = PredictivePerf.getLastLongTaskEndTime(
+          estimate.nodeTiming,
+          longTaskThreshold
+        );
 
         switch (key) {
           case 'optimisticFCP':
@@ -240,13 +277,16 @@ class PredictivePerf extends Audit {
         }
       });
 
-      values.roughEstimateOfFCP = COEFFICIENTS.FCP.intercept +
+      values.roughEstimateOfFCP =
+        COEFFICIENTS.FCP.intercept +
         COEFFICIENTS.FCP.optimistic * values.optimisticFCP +
         COEFFICIENTS.FCP.pessimistic * values.pessimisticFCP;
-      values.roughEstimateOfFMP = COEFFICIENTS.FMP.intercept +
+      values.roughEstimateOfFMP =
+        COEFFICIENTS.FMP.intercept +
         COEFFICIENTS.FMP.optimistic * values.optimisticFMP +
         COEFFICIENTS.FMP.pessimistic * values.pessimisticFMP;
-      values.roughEstimateOfTTCI = COEFFICIENTS.TTCI.intercept +
+      values.roughEstimateOfTTCI =
+        COEFFICIENTS.TTCI.intercept +
         COEFFICIENTS.TTCI.optimistic * values.optimisticTTCI +
         COEFFICIENTS.TTCI.pessimistic * values.pessimisticTTCI;
 

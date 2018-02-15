@@ -5,14 +5,13 @@
  */
 'use strict';
 
-const URL = require('../../url-shim');
 const INITIAL_CWD = 14 * 1024;
 
 module.exports = class NetworkAnalyzer {
   static groupByOrigin(records) {
     const grouped = new Map();
     records.forEach(item => {
-      const key = new URL(item.url).origin;
+      const key = item.origin;
       const group = grouped.get(key) || [];
       group.push(item);
       grouped.set(key, group);
@@ -73,7 +72,7 @@ module.exports = class NetworkAnalyzer {
   }
 
   static _estimateRTTByOriginViaTCPTiming(records) {
-    return NetworkAnalyzer._estimateValueByOrigin(records, ({record, timing, connectionReused}) => {
+    return NetworkAnalyzer._estimateValueByOrigin(records, ({timing, connectionReused}) => {
       if (connectionReused) return;
 
       if (timing.sslStart > 0 && timing.sslEnd > 0) {
@@ -84,7 +83,7 @@ module.exports = class NetworkAnalyzer {
     });
   }
 
-  static _estimateRTTByOriginViaDownloadTiming(records, options) {
+  static _estimateRTTByOriginViaDownloadTiming(records) {
     return NetworkAnalyzer._estimateValueByOrigin(records, ({record, timing, connectionReused}) => {
       if (connectionReused) return;
       if (record.transferSize <= INITIAL_CWD) return;
@@ -114,7 +113,7 @@ module.exports = class NetworkAnalyzer {
       if (!Number.isFinite(timing.sendEnd) || timing.sendEnd < 0) return;
 
       const ttfb = timing.receiveHeadersEnd - timing.sendEnd;
-      const origin = new URL(record.url).origin;
+      const origin = record.origin;
       const rtt = rttByOrigin.get(origin) || rttByOrigin.get(NetworkAnalyzer.SUMMARY);
       return Math.max(ttfb - rtt, 0);
     });
@@ -127,20 +126,22 @@ module.exports = class NetworkAnalyzer {
    * @param {!WebInspector.NetworkRequest} records
    * @return {!Map<string, boolean>}
    */
-  static estimateIfConnectionWasReused(records) {
+  static estimateIfConnectionWasReused(records, options) {
+    options = Object.assign({forceCoarseEstimates: false}, options);
+
     const connectionIds = new Set(records.map(record => record.connectionId));
     // If the records actually have distinct connectionIds we can reuse these.
-    if (connectionIds.size > 1 || records.size < 2) {
-      return new Map(records.map(record => [record.requestId, record.connectionReused]));
+    if (!options.forceCoarseEstimates && connectionIds.size > 1) {
+      return new Map(records.map(record => [record.requestId, !!record.connectionReused]));
     }
 
-    // Otherwise we're on our own, arecord may not have needed a fresh connection if...
+    // Otherwise we're on our own, a record may not have needed a fresh connection if...
     //   - It was not the first request to the domain
     //   - It was H2
     //   - It was after the first request to the domain ended
     const connectionWasReused = new Map();
     const groupedByOrigin = NetworkAnalyzer.groupByOrigin(records);
-    for (const [origin, originRecords] of groupedByOrigin.entries()) {
+    for (const [_, originRecords] of groupedByOrigin.entries()) {
       const earliestReusePossible = originRecords
         .map(record => record.endTime)
         .reduce((a, b) => Math.min(a, b), Infinity);
@@ -152,9 +153,9 @@ module.exports = class NetworkAnalyzer {
         );
       }
 
-      const firstRecord = originRecords.reduce((a, b) => (a.startTime > b.startTime ? b : a), {
-        startTime: Infinity,
-      });
+      // TODO(phulce): compute the maximum number of parallel requests (N) and ensure we have at
+      // least N requests that required new connections
+      const firstRecord = originRecords.reduce((a, b) => (a.startTime > b.startTime ? b : a));
       connectionWasReused.set(firstRecord.requestId, false);
     }
 

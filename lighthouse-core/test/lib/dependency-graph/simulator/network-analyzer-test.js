@@ -16,22 +16,32 @@ const devtoolsLog = require('../../../fixtures/traces/progressive-app-m60.devtoo
 
 /* eslint-env mocha */
 describe('DependencyGraph/Simulator/NetworkAnalyzer', () => {
-  let computedArtifacts, recordId;
+  let computedArtifacts;
+  let recordId;
+
+  function addOriginToRecord(record) {
+    const parsed = record.parsedURL || {};
+    record.origin = `${parsed.scheme}://${parsed.host}`;
+  }
 
   function createRecord(opts) {
     const url = opts.url || 'https://example.com';
-    return Object.assign({
-      url,
-      requestId: recordId++,
-      connectionId: 0,
-      connectionReused: false,
-      startTime: 0.01,
-      endTime: 0.01,
-      transferSize: 0,
-      protocol: 'http/1.1',
-      parsedURL: {scheme: url.match(/https?/)[0]},
-      _timing: opts.timing || null,
-    }, opts);
+    return Object.assign(
+      {
+        url,
+        origin: url.match(/.*\.com/)[0],
+        requestId: recordId++,
+        connectionId: 0,
+        connectionReused: false,
+        startTime: 0.01,
+        endTime: 0.01,
+        transferSize: 0,
+        protocol: 'http/1.1',
+        parsedURL: {scheme: url.match(/https?/)[0]},
+        _timing: opts.timing || null,
+      },
+      opts
+    );
   }
 
   beforeEach(() => {
@@ -41,7 +51,7 @@ describe('DependencyGraph/Simulator/NetworkAnalyzer', () => {
 
   function assertCloseEnough(valueA, valueB, threshold = 1) {
     const message = `${valueA} was not close enough to ${valueB}`;
-    assert.ok(Math.abs(valueA - valueB) < threshold, message)
+    assert.ok(Math.abs(valueA - valueB) < threshold, message);
   }
 
   describe('#estimateIfConnectionWasReused', () => {
@@ -128,6 +138,7 @@ describe('DependencyGraph/Simulator/NetworkAnalyzer', () => {
 
     it('should work on a real devtoolsLog', () => {
       return computedArtifacts.requestNetworkRecords(devtoolsLog).then(records => {
+        records.forEach(addOriginToRecord);
         const result = NetworkAnalyzer.estimateRTTByOrigin(records);
         assertCloseEnough(result.get('https://pwa.rocks').min, 3);
         assertCloseEnough(result.get('https://www.googletagmanager.com').min, 3);
@@ -138,7 +149,9 @@ describe('DependencyGraph/Simulator/NetworkAnalyzer', () => {
     it('should approximate well with either method', () => {
       return computedArtifacts.requestNetworkRecords(devtoolsLog).then(records => {
         const result = NetworkAnalyzer.estimateRTTByOrigin(records).get(NetworkAnalyzer.SUMMARY);
-        const resultApprox = NetworkAnalyzer.estimateRTTByOrigin(records, {forceCoarseEstimates: true}).get(NetworkAnalyzer.SUMMARY);
+        const resultApprox = NetworkAnalyzer.estimateRTTByOrigin(records, {
+          forceCoarseEstimates: true,
+        }).get(NetworkAnalyzer.SUMMARY);
         assertCloseEnough(result.min, resultApprox.min, 20);
         assertCloseEnough(result.avg, resultApprox.avg, 30);
         assertCloseEnough(result.median, resultApprox.median, 30);
@@ -175,6 +188,7 @@ describe('DependencyGraph/Simulator/NetworkAnalyzer', () => {
 
     it('should work on a real devtoolsLog', () => {
       return computedArtifacts.requestNetworkRecords(devtoolsLog).then(records => {
+        records.forEach(addOriginToRecord);
         const result = NetworkAnalyzer.estimateServerResponseTimeByOrigin(records);
         assertCloseEnough(result.get('https://pwa.rocks').avg, 162);
         assertCloseEnough(result.get('https://www.googletagmanager.com').avg, 153);
@@ -184,8 +198,12 @@ describe('DependencyGraph/Simulator/NetworkAnalyzer', () => {
 
     it('should approximate well with either method', () => {
       return computedArtifacts.requestNetworkRecords(devtoolsLog).then(records => {
-        const result = NetworkAnalyzer.estimateServerResponseTimeByOrigin(records).get(NetworkAnalyzer.SUMMARY);
-        const resultApprox = NetworkAnalyzer.estimateServerResponseTimeByOrigin(records, {forceCoarseEstimates: true}).get(NetworkAnalyzer.SUMMARY);
+        const result = NetworkAnalyzer.estimateServerResponseTimeByOrigin(records).get(
+          NetworkAnalyzer.SUMMARY
+        );
+        const resultApprox = NetworkAnalyzer.estimateServerResponseTimeByOrigin(records, {
+          forceCoarseEstimates: true,
+        }).get(NetworkAnalyzer.SUMMARY);
         assertCloseEnough(result.min, resultApprox.min, 20);
         assertCloseEnough(result.avg, resultApprox.avg, 30);
         assertCloseEnough(result.median, resultApprox.median, 30);
