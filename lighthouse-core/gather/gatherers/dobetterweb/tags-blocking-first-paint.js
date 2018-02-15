@@ -5,23 +5,39 @@
  */
 
 /**
-  * @fileoverview
-  *   Identifies stylesheets, HTML Imports, and scripts that potentially block
-  *   the first paint of the page by running several scripts in the page context.
-  *   Candidate blocking tags are collected by querying for all script tags in
-  *   the head of the page and all link tags that are either matching media
-  *   stylesheets or non-async HTML imports. These are then compared to the
-  *   network requests to ensure they were initiated by the parser and not
-  *   injected with script. To avoid false positives from strategies like
-  *   (http://filamentgroup.github.io/loadCSS/test/preload.html), a separate
-  *   script is run to flag all links that at one point were rel=preload.
-  */
+ * @fileoverview
+ *   Identifies stylesheets, HTML Imports, and scripts that potentially block
+ *   the first paint of the page by running several scripts in the page context.
+ *   Candidate blocking tags are collected by querying for all script tags in
+ *   the head of the page and all link tags that are either matching media
+ *   stylesheets or non-async HTML imports. These are then compared to the
+ *   network requests to ensure they were initiated by the parser and not
+ *   injected with script. To avoid false positives from strategies like
+ *   (http://filamentgroup.github.io/loadCSS/test/preload.html), a separate
+ *   script is run to flag all links that at one point were rel=preload.
+ */
 
 'use strict';
 
 const Gatherer = require('../gatherer');
 
 /* global document,window */
+
+function installMediaListener() {
+  window.___linkMediaChanges = [];
+  Object.defineProperty(HTMLLinkElement.prototype, 'media', {
+    set: function(val) {
+      window.___linkMediaChanges.push({
+        url: this.href,
+        value: val,
+        time: Date.now() - window.performance.timing.responseStart,
+        matches: window.matchMedia(val).matches,
+      });
+
+      return this.setAttribute('media', val);
+    },
+  });
+}
 
 /* istanbul ignore next */
 function collectTagsThatBlockFirstPaint() {
@@ -30,17 +46,18 @@ function collectTagsThatBlockFirstPaint() {
       const tagList = [...document.querySelectorAll('link, head script[src]')]
         .filter(tag => {
           if (tag.tagName === 'SCRIPT') {
-            return !tag.hasAttribute('async') &&
-                !tag.hasAttribute('defer') &&
-                !/^data:/.test(tag.src) &&
-                tag.getAttribute('type') !== 'module';
+            return (
+              !tag.hasAttribute('async') &&
+              !tag.hasAttribute('defer') &&
+              !/^data:/.test(tag.src) &&
+              tag.getAttribute('type') !== 'module'
+            );
           }
 
           // Filter stylesheet/HTML imports that block rendering.
           // https://www.igvita.com/2012/06/14/debunking-responsive-css-performance-myths/
           // https://www.w3.org/TR/html-imports/#dfn-import-async-attribute
-          const blockingStylesheet = (tag.rel === 'stylesheet' &&
-              window.matchMedia(tag.media).matches && !tag.disabled);
+          const blockingStylesheet = tag.rel === 'stylesheet' && window.matchMedia(tag.media).matches && !tag.disabled;
           const blockingImport = tag.rel === 'import' && !tag.hasAttribute('async');
           return blockingStylesheet || blockingImport;
         })
@@ -53,6 +70,7 @@ function collectTagsThatBlockFirstPaint() {
             rel: tag.rel,
             media: tag.media,
             disabled: tag.disabled,
+            mediaChanges: window.___linkMediaChanges.filter(item => item.url === tag.href),
           };
         });
       resolve(tagList);
@@ -105,11 +123,16 @@ class TagsBlockingFirstPaint extends Gatherer {
       return tags.reduce((prev, tag) => {
         const request = requests[tag.url];
         if (request && !request.isLinkPreload) {
+          const nonMatchingMediaChangeTimes = tag.mediaChanges
+            .filter(change => !change.matches)
+            .map(change => change.time);
+          const earliestNonBlockingTime = Math.min(...nonMatchingMediaChangeTimes);
+
           prev.push({
             tag,
             transferSize: request.transferSize || 0,
             startTime: request.startTime,
-            endTime: request.endTime,
+            endTime: Math.min(request.endTime, request.startTime + earliestNonBlockingTime / 1000),
           });
 
           // Prevent duplicates from showing up again
@@ -122,12 +145,19 @@ class TagsBlockingFirstPaint extends Gatherer {
   }
 
   /**
-   * @param {!Object} options
+   * @param {!Object} context
+   */
+  beforePass(context) {
+    return context.driver.evaluteScriptOnNewDocument(`(${installMediaListener.toString()})()`);
+  }
+
+  /**
+   * @param {!Object} context
    * @param {{networkRecords: !Array<!NetworkRecord>}} tracingData
    * @return {!Array<{tag: string, transferSize: number, startTime: number, endTime: number}>}
    */
-  afterPass(options, tracingData) {
-    return TagsBlockingFirstPaint.findBlockingTags(options.driver, tracingData.networkRecords);
+  afterPass(context, tracingData) {
+    return TagsBlockingFirstPaint.findBlockingTags(context.driver, tracingData.networkRecords);
   }
 }
 

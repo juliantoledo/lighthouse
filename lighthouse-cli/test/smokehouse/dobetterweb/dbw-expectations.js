@@ -37,13 +37,13 @@ module.exports = [
         extendedInfo: {
           value: {
             results: {
-              length: 16,
+              length: 17,
             },
           },
         },
         details: {
           items: {
-            length: 16,
+            length: 17,
           },
         },
       },
@@ -71,16 +71,17 @@ module.exports = [
       },
       'link-blocking-first-paint': {
         score: 0,
+        rawValue: '<3000',
         extendedInfo: {
           value: {
             results: {
-              length: 4,
+              length: 5,
             },
           },
         },
         details: {
           items: {
-            length: 4,
+            length: 5,
           },
         },
       },
