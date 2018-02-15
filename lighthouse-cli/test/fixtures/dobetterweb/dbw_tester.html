@@ -102,6 +102,9 @@
     }
   </style>
 </template>
+
+<!-- Force FCP to be ~5s out, necessary to make sure our render-blocking audits still work -->
+<!-- even when other forces were responsible for delaying the render. -->
 <script> while (Date.now() - performance.timing.responseStart < 5000) ; </script>
 </head>
 <body>
