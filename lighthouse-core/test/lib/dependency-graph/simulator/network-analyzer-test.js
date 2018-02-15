@@ -11,8 +11,6 @@ const assert = require('assert');
 const NetworkAnalyzer = require('../../../../lib/dependency-graph/simulator/network-analyzer');
 const Runner = require('../../../../runner');
 const devtoolsLog = require('../../../fixtures/traces/progressive-app-m60.devtools.log.json');
-// const devtoolsLog = require('../../../../../plots/out-tmp/out-0-300/weather.com-./2017-12-06T17.38.32.470Z/assets-0.devtoolslog.json');
-// const devtoolsLog = require('../../../../../plots/out-tmp/from-lightrider/www.weather.com.cn/devtoolslog-defaultPass.json');
 
 /* eslint-env mocha */
 describe('DependencyGraph/Simulator/NetworkAnalyzer', () => {

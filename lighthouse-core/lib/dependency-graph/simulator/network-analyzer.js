@@ -19,6 +19,10 @@ module.exports = class NetworkAnalyzer {
     return grouped;
   }
 
+  /**
+   * @param {!Array<number>} values
+   * @return {!NetworkAnalyzer.Summary}
+   */
   static summary(values) {
     if (values instanceof Map) {
       const summaryByKey = new Map();
@@ -42,6 +46,11 @@ module.exports = class NetworkAnalyzer {
     };
   }
 
+  /**
+   * @param {!Array<WebInspector.NetworkRequest>} records
+   * @param {function():void} iteratee
+   * @return {!Map<string, !Array<number>>}
+   */
   static _estimateValueByOrigin(records, iteratee) {
     const connectionWasReused = NetworkAnalyzer.estimateIfConnectionWasReused(records);
     const groupedByOrigin = NetworkAnalyzer.groupByOrigin(records);
@@ -71,10 +80,19 @@ module.exports = class NetworkAnalyzer {
     return estimates;
   }
 
+  /**
+   * Estimates the observed RTT to each origin based on how long the TCP handshake took.
+   * This is the most accurate and preferred method of measurement when the data is available.
+   *
+   * @param {!Array<WebInspector.NetworkRequest>} records
+   * @return {!Map<string, !Array<number>>}
+   */
   static _estimateRTTByOriginViaTCPTiming(records) {
     return NetworkAnalyzer._estimateValueByOrigin(records, ({timing, connectionReused}) => {
       if (connectionReused) return;
 
+      // If the request was SSL we get two estimates, one for the SSL negotiation and another for the
+      // regular handshake. SSL can also be more than 1 RT but assume False Start was used.
       if (timing.sslStart > 0 && timing.sslEnd > 0) {
         return [timing.connectEnd - timing.sslStart, timing.sslStart - timing.connectStart];
       } else if (timing.connectStart > 0 && timing.connectEnd > 0) {
@@ -83,30 +101,62 @@ module.exports = class NetworkAnalyzer {
     });
   }
 
+  /**
+   * Estimates the observed RTT to each origin based on how long a download took on a fresh connection.
+   * NOTE: this will tend to overestimate the actual RTT quite significantly as the download can be
+   * slow for other reasons as well such as bandwidth constraints.
+   *
+   * @param {!Array<WebInspector.NetworkRequest>} records
+   * @return {!Map<string, !Array<number>>}
+   */
   static _estimateRTTByOriginViaDownloadTiming(records) {
     return NetworkAnalyzer._estimateValueByOrigin(records, ({record, timing, connectionReused}) => {
       if (connectionReused) return;
+      // Only look at downloads that went past the initial congestion window
       if (record.transferSize <= INITIAL_CWD) return;
       if (!Number.isFinite(timing.receiveHeadersEnd) || timing.receiveHeadersEnd < 0) return;
 
+      // Compute the amount of time downloading everything after the first congestion window took
       const totalTime = (record.endTime - record.startTime) * 1000;
       const downloadTimeAfterFirstByte = totalTime - timing.receiveHeadersEnd;
       const numberOfRoundTrips = Math.log2(record.transferSize / INITIAL_CWD);
+
+      // Ignore requests that required a high number of round trips since bandwidth starts to play
+      // a larger role than latency
+      if (numberOfRoundTrips > 5) return;
       return downloadTimeAfterFirstByte / numberOfRoundTrips;
     });
   }
 
+  /**
+   * Estimates the observed RTT to each origin based on how long it took until Chrome could
+   * start sending the actual request when a new connection was required.
+   * NOTE: this will tend to overestimate the actual RTT as the request can be delayed for other
+   * reasons as well such as DNS lookup.
+   *
+   * @param {!Array<WebInspector.NetworkRequest>} records
+   * @return {!Map<string, !Array<number>>}
+   */
   static _estimateRTTByOriginViaSendStartTiming(records) {
     return NetworkAnalyzer._estimateValueByOrigin(records, ({record, timing, connectionReused}) => {
       if (connectionReused) return;
       if (!Number.isFinite(timing.sendStart) || timing.sendStart < 0) return;
 
+      // Assume everything before sendStart was just a TCP handshake
+      // 1 RT needed for http, 2 RTs for https
       let roundTrips = 1;
       if (record.parsedURL.scheme === 'https') roundTrips += 1;
       return timing.sendStart / roundTrips;
     });
   }
 
+  /**
+   * Given the RTT to each origin, estimates the observed server response times.
+   *
+   * @param {!Array<WebInspector.NetworkRequest>} records
+   * @param {!Map<string, number>} rttByOrigin
+   * @return {!Map<string, !Array<number>>}
+   */
   static _estimateResponseTimeByOrigin(records, rttByOrigin) {
     return NetworkAnalyzer._estimateValueByOrigin(records, ({record, timing}) => {
       if (!Number.isFinite(timing.receiveHeadersEnd) || timing.receiveHeadersEnd < 0) return;
@@ -162,6 +212,15 @@ module.exports = class NetworkAnalyzer {
     return connectionWasReused;
   }
 
+  /**
+   * Estimates the RTT to each origin by examining observed network timing information.
+   * Attempts to use the most accurate information first and falls back to coarser estimates when it
+   * is unavailable.
+   *
+   * @param {!Array<WebInspector.NetworkRequest>} records
+   * @param {Object=} options
+   * @return {!Map<string, !NetworkAnalyzer.Summary>}
+   */
   static estimateRTTByOrigin(records, options) {
     options = Object.assign(
       {
@@ -169,7 +228,7 @@ module.exports = class NetworkAnalyzer {
         // it's useful to see how the coarse estimates compare with higher fidelity data
         forceCoarseEstimates: false,
         // coarse estimates include lots of extra time and noise
-        // multiply by some factor to deflate the RTT estimates a bit
+        // multiply by some factor to deflate the estimates a bit
         coarseEstimateMultiplier: 0.5,
       },
       options
@@ -202,6 +261,14 @@ module.exports = class NetworkAnalyzer {
     return NetworkAnalyzer.summary(estimatesByOrigin);
   }
 
+  /**
+   * Estimates the server response time of each origin. RTT times can be passed in or will be
+   * estimated automatically if not provided.
+   *
+   * @param {!Array<WebInspector.NetworkRequest>} records
+   * @param {Object=} options
+   * @return {!Map<string, !NetworkAnalyzer.Summary>}
+   */
   static estimateServerResponseTimeByOrigin(records, options) {
     options = Object.assign(
       {
@@ -222,5 +289,13 @@ module.exports = class NetworkAnalyzer {
     return NetworkAnalyzer.summary(estimatesByOrigin);
   }
 };
+
+/**
+ * @typedef NetworkAnalyzer.Summary
+ * @property {number} min
+ * @property {number} max
+ * @property {number} avg
+ * @property {number} median
+ */
 
 module.exports.SUMMARY = Symbol('__SUMMARY__');

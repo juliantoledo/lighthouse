@@ -12,6 +12,10 @@ const DEFAULT_SERVER_RESPONSE_TIME = 30;
 const TLS_SCHEMES = ['https', 'wss'];
 
 module.exports = class ConnectionPool {
+  /**
+   * @param {!Array<!WebInspector.NetworkRequest>} records
+   * @param {Object=} options
+   */
   constructor(records, options) {
     this._options = Object.assign(
       {
@@ -38,6 +42,9 @@ module.exports = class ConnectionPool {
     this._initializeConnections();
   }
 
+  /**
+   * @return {!Array<!WebInspector.NetworkRequest>}
+   */
   connectionsInUse() {
     return Array.from(this._connectionsInUse);
   }
@@ -77,6 +84,10 @@ module.exports = class ConnectionPool {
     }
   }
 
+  /**
+   * @param {!WebInspector.NetworkRequest} record
+   * @return {?TcpConnection}
+   */
   acquire(record) {
     if (this._connectionsByRecord.has(record)) {
       return this._connectionsByRecord.get(record);
@@ -96,6 +107,9 @@ module.exports = class ConnectionPool {
     return connection;
   }
 
+  /**
+   * @param {!WebInspector.NetworkRequest} record
+   */
   release(record) {
     const connection = this._connectionsByRecord.get(record);
     this._connectionsByRecord.delete(record);
