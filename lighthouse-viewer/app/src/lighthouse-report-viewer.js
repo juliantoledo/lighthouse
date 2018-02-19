@@ -5,7 +5,7 @@
  */
 'use strict';
 
-/* global DOM, CategoryRenderer, DetailsRenderer, ViewerUIFeatures, ReportRenderer, DragAndDrop, GithubApi, logger */
+/* global DOM, CategoryRenderer, DetailsRenderer, ViewerUIFeatures, ReportRenderer, DragAndDrop, logger */
 
 /**
  * Class that manages viewing Lighthouse reports.
@@ -13,12 +13,10 @@
 class LighthouseReportViewer {
   constructor() {
     this._onPaste = this._onPaste.bind(this);
-    this._onSaveJson = this._onSaveJson.bind(this);
     this._onFileLoad = this._onFileLoad.bind(this);
     this._onUrlInputChange = this._onUrlInputChange.bind(this);
 
     this._dragAndDropper = new DragAndDrop(this._onFileLoad);
-    this._github = new GithubApi();
 
     /**
      * Used for tracking whether to offer to upload as a gist.
@@ -68,15 +66,26 @@ class LighthouseReportViewer {
    */
   _loadFromDeepLink() {
     const params = new URLSearchParams(location.search);
-    const gistId = params.get('gist');
-    if (!gistId) {
+    const pwaDirId = params.get('pwadir');
+    if (!pwaDirId) {
       return Promise.resolve();
     }
 
-    return this._github.getGistFileContentAsJson(gistId).then(reportJson => {
+    return this.getPwaDirFileContentAsJson(pwaDirId).then(reportJson => {
       this._reportIsFromGist = true;
       this._replaceReportHtml(reportJson);
     }).catch(err => logger.error(err.message));
+  }
+
+  getPwaDirFileContentAsJson(id) {
+    return fetch(`https://web-performance-dot-pwa-directory.appspot.com/lighthousereport/${id}?limit=1`).then(resp => {
+      if (!resp.ok) {
+        throw new Error(`${resp.status} fetching json from Pwa Directory`);
+      }
+      return resp.json().then(json => {
+        return JSON.parse(json[0].rawData.value);
+      });
+    });
   }
 
   /**
@@ -187,30 +196,6 @@ class LighthouseReportViewer {
       reader.onerror = reject;
       reader.readAsText(file);
     });
-  }
-
-  /**
-   * Saves the current report by creating a gist on GitHub.
-   * @param {!ReportRenderer.ReportJSON} reportJson
-   * @return {!Promise<string>} id of the created gist.
-   * @private
-   */
-  _onSaveJson(reportJson) {
-    if (window.ga) {
-      window.ga('send', 'event', 'report', 'share');
-    }
-
-    // TODO: find and reuse existing json gist if one exists.
-    return this._github.createGist(reportJson).then(id => {
-      if (window.ga) {
-        window.ga('send', 'event', 'report', 'created');
-      }
-
-      this._reportIsFromGist = true;
-      history.pushState({}, null, `${LighthouseReportViewer.APP_URL}?gist=${id}`);
-
-      return id;
-    }).catch(err => logger.log(err.message));
   }
 
   /**
