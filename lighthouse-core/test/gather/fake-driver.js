@@ -9,6 +9,9 @@ module.exports = {
   getUserAgent() {
     return Promise.resolve('Fake user agent');
   },
+  getBenchmarkIndex() {
+    return Promise.resolve(125.2);
+  },
   connect() {
     return Promise.resolve();
   },
@@ -60,12 +63,7 @@ module.exports = {
   },
   beginDevtoolsLog() {},
   endDevtoolsLog() {
-    return require('../fixtures/perflog.json');
-  },
-  getSecurityState() {
-    return Promise.resolve({
-      schemeIsCryptographic: true,
-    });
+    return require('../fixtures/artifacts/perflog/defaultPass.devtoolslog.json');
   },
   blockUrlPatterns() {
     return Promise.resolve();

@@ -1,15 +1,35 @@
 # Running Lighthouse using headless Chrome
 
-For now, we recommend running Chrome with xvfb. See below.
+## CLI (headless)
+
+Setup:
+
+```sh
+# Lighthouse requires Node 8 LTS (8.9) or later.
+curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash - &&\
+sudo apt-get install -y nodejs npm
+
+# get chromium (stable)
+apt-get install chromium
+
+# install lighthouse
+npm i -g lighthouse
+```
+
+Kick off run of Lighthouse using headless Chrome:
+
+```sh
+lighthouse --chrome-flags="--headless" https://github.com
+```
 
 ## CLI (xvfb)
 
-Chrome + xvfb is the stable solution we recommend. These steps worked on Debian Jessie:
+Alternatively, you can run full Chrome + xvfb instead of headless mode. These steps worked on Debian Jessie:
 
 ```sh
-# get node 6
-curl -sL https://deb.nodesource.com/setup_6.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# get node 8
+curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash -
+sudo apt-get install -y nodejs npm
 
 # get chromium (stable) and Xvfb
 apt-get install chromium-browser xvfb
@@ -35,32 +55,31 @@ xvfb-run --server-args='-screen 0, 1024x768x16' \
 lighthouse --port=9222 https://github.com
 ```
 
-## CLI (headless)
+## Posting Lighthouse reports to GitHub Gists
 
-> **Note**: Headless Chrome still has a few bugs to work out. For example, [network emulation](https://bugs.chromium.org/p/chromium/issues/detail?id=728451) is not supported yet.
-This can affect the accuracy of performance scores returned by Lighthouse.
-
-Setup:
+Be sure to replace `${GITHUB_OWNER}` and `${GITHUB_TOKEN}` with your own credentials. The code below is tested on Ubuntu. 
 
 ```sh
-# get node 6
-curl -sL https://deb.nodesource.com/setup_6.x | sudo -E bash - &&\
-sudo apt-get install -y nodejs
+apt-get install -y nodejs npm chromium jq
+npm install -g lighthouse
 
-# get chromium (stable)
-apt-get install chromium-browser
+# Run lighthouse as JSON, pipe it to jq to wrangle and send it to GitHub Gist via curl 
+# so Lighthouse Viewer can grab it. 
+lighthouse "http://localhost" --chrome-flags="--no-sandbox --headless" \
+  --output json \
+| jq -r "{ description: \"YOUR TITLE HERE\", public: \"false\", files: {\"$(date "+%Y%m%d").lighthouse.report.json\": {content: (. | tostring) }}}" \
+| curl -sS -X POST -H 'Content-Type: application/json' \
+    -u ${GITHUB_OWNER}:${GITHUB_TOKEN} \
+    -d @- https://api.github.com/gists > results.gist
 
-# install lighthouse
-npm i -g lighthouse
+# Let's be nice and add the Lighthouse Viewer link in the Gist description.
+GID=$(cat results.gist | jq -r '.id') && \
+curl -sS -X POST -H 'Content-Type: application/json' \
+  -u ${GITHUB_OWNER}:${GITHUB_TOKEN} \
+  -d "{ \"description\": \"YOUR TITLE HERE - Lighthouse: https://googlechrome.github.io/lighthouse/viewer/?gist=${GID}\" }" "https://api.github.com/gists/${GID}" > updated.gist
 ```
 
-Kick off run of Lighthouse using headless Chrome:
-
-```sh
-lighthouse --chrome-flags="--headless" https://github.com
-```
-
-## Node
+## Node module
 
 Install:
 

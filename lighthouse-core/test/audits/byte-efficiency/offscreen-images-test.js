@@ -7,9 +7,12 @@
 
 const UnusedImages =
     require('../../../audits/byte-efficiency/offscreen-images.js');
+const NetworkNode = require('../../../lib/dependency-graph/network-node');
+const CPUNode = require('../../../lib/dependency-graph/cpu-node');
 const assert = require('assert');
+const LHError = require('../../../lib/lh-error');
 
-/* eslint-env mocha */
+/* eslint-env jest */
 function generateRecord(resourceSizeInKb, startTime = 0, mimeType = 'image/png') {
   return {
     mimeType,
@@ -48,8 +51,27 @@ function generateInteractiveFunc(desiredTimeInSeconds) {
   });
 }
 
+function generateInteractiveFuncError() {
+  return () => Promise.reject(
+    new LHError(LHError.errors.NO_TTI_NETWORK_IDLE_PERIOD)
+  );
+}
+
+function generateTraceOfTab(desiredTimeInSeconds) {
+  return () => Promise.resolve({
+    timestamps: {
+      traceEnd: desiredTimeInSeconds * 1000000,
+    },
+  });
+}
+
 describe('OffscreenImages audit', () => {
+  let context;
   const DEFAULT_DIMENSIONS = {innerWidth: 1920, innerHeight: 1080};
+
+  beforeEach(() => {
+    context = {settings: {throttlingMethod: 'devtools'}};
+  });
 
   it('handles images without network record', () => {
     return UnusedImages.audit_({
@@ -58,9 +80,10 @@ describe('OffscreenImages audit', () => {
         generateImage(generateSize(100, 100), [0, 0]),
       ],
       traces: {},
-      requestFirstInteractive: generateInteractiveFunc(2),
-    }).then(auditResult => {
-      assert.equal(auditResult.results.length, 0);
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFunc(2),
+    }, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 0);
     });
   });
 
@@ -75,9 +98,10 @@ describe('OffscreenImages audit', () => {
         generateImage(generateSize(400, 400), [1720, 1080], generateRecord(3), urlC),
       ],
       traces: {},
-      requestFirstInteractive: generateInteractiveFunc(2),
-    }).then(auditResult => {
-      assert.equal(auditResult.results.length, 0);
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFunc(2),
+    }, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 0);
     });
   });
 
@@ -98,9 +122,10 @@ describe('OffscreenImages audit', () => {
         generateImage(generateSize(1000, 1000), [0, -500], generateRecord(100), url('E')),
       ],
       traces: {},
-      requestFirstInteractive: generateInteractiveFunc(2),
-    }).then(auditResult => {
-      assert.equal(auditResult.results.length, 4);
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFunc(2),
+    }, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 4);
     });
   });
 
@@ -111,9 +136,11 @@ describe('OffscreenImages audit', () => {
         generateImage(generateSize(0, 0), [0, 0], generateRecord(100)),
       ],
       traces: {},
-      requestFirstInteractive: generateInteractiveFunc(2),
-    }).then(auditResult => {
-      assert.equal(auditResult.results.length, 1);
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFunc(2),
+    }, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 1);
+      assert.equal(auditResult.items[0].wastedBytes, 100 * 1024);
     });
   });
 
@@ -128,9 +155,10 @@ describe('OffscreenImages audit', () => {
         generateImage(generateSize(400, 400), [0, 1500], generateRecord(90), urlB),
       ],
       traces: {},
-      requestFirstInteractive: generateInteractiveFunc(2),
-    }).then(auditResult => {
-      assert.equal(auditResult.results.length, 1);
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFunc(2),
+    }, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 1);
     });
   });
 
@@ -142,9 +170,142 @@ describe('OffscreenImages audit', () => {
         generateImage(generateSize(200, 200), [3000, 0], generateRecord(100, 3)),
       ],
       traces: {},
-      requestFirstInteractive: generateInteractiveFunc(2),
-    }).then(auditResult => {
-      assert.equal(auditResult.results.length, 0);
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFunc(2),
+    }, [], context, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 0);
     });
+  });
+
+  it('disregards images loaded after Trace End when interactive throws error', () => {
+    return UnusedImages.audit_({
+      ViewportDimensions: DEFAULT_DIMENSIONS,
+      ImageUsage: [
+        // offscreen to the right
+        generateImage(generateSize(200, 200), [3000, 0], generateRecord(100, 3)),
+      ],
+      traces: {},
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFuncError(),
+      requestTraceOfTab: generateTraceOfTab(2),
+    }, [], context, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 0);
+    });
+  });
+
+  it('finds images loaded before Trace End when TTI when interactive throws error', () => {
+    return UnusedImages.audit_({
+      ViewportDimensions: DEFAULT_DIMENSIONS,
+      ImageUsage: [
+        // offscreen to the right
+        generateImage(generateSize(100, 100), [0, 2000], generateRecord(100)),
+      ],
+      traces: {},
+      devtoolsLogs: {},
+      requestInteractive: generateInteractiveFuncError(),
+      requestTraceOfTab: generateTraceOfTab(2),
+    }, [], context, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 1);
+    });
+  });
+
+  it('disregards images loaded after last long task (Lantern)', () => {
+    context = {settings: {throttlingMethod: 'simulate'}};
+    const recordA = {url: 'a', resourceSize: 100 * 1024, requestId: 'a'};
+    const recordB = {url: 'b', resourceSize: 100 * 1024, requestId: 'b'};
+
+    const networkA = new NetworkNode(recordA);
+    const networkB = new NetworkNode(recordB);
+    const cpu = new CPUNode({}, []);
+    const timings = new Map([
+      [networkA, {startTime: 1000}],
+      [networkB, {startTime: 2000}],
+      [cpu, {startTime: 1975, endTime: 2025, duration: 50}],
+    ]);
+
+    return UnusedImages.audit_({
+      ViewportDimensions: DEFAULT_DIMENSIONS,
+      ImageUsage: [
+        generateImage(generateSize(0, 0), [0, 0], recordA, recordA.url),
+        generateImage(generateSize(200, 200), [3000, 0], recordB, recordB.url),
+      ],
+      traces: {},
+      devtoolsLogs: {},
+      requestInteractive: async () => ({pessimisticEstimate: {nodeTimings: timings}}),
+    }, [], context, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 1);
+      assert.equal(auditResult.items[0].url, 'a');
+    });
+  });
+
+  it('finds images loaded before last long task (Lantern)', () => {
+    context = {settings: {throttlingMethod: 'simulate'}};
+    const recordA = {url: 'a', resourceSize: 100 * 1024, requestId: 'a'};
+    const recordB = {url: 'b', resourceSize: 100 * 1024, requestId: 'b'};
+
+    const networkA = new NetworkNode(recordA);
+    const networkB = new NetworkNode(recordB);
+    const cpu = new CPUNode({}, []);
+    const timings = new Map([
+      [networkA, {startTime: 1000}],
+      [networkB, {startTime: 1500}],
+      [cpu, {startTime: 1975, endTime: 2025, duration: 50}],
+    ]);
+
+    return UnusedImages.audit_({
+      ViewportDimensions: DEFAULT_DIMENSIONS,
+      ImageUsage: [
+        generateImage(generateSize(0, 0), [0, 0], recordA, recordA.url),
+        generateImage(generateSize(200, 200), [3000, 0], recordB, recordB.url),
+      ],
+      traces: {},
+      devtoolsLogs: {},
+      requestInteractive: async () => ({pessimisticEstimate: {nodeTimings: timings}}),
+      requestTraceOfTab: generateTraceOfTab(2),
+    }, [], context, [], context).then(auditResult => {
+      assert.equal(auditResult.items.length, 2);
+      assert.equal(auditResult.items[0].url, 'a');
+      assert.equal(auditResult.items[1].url, 'b');
+    });
+  });
+
+  it('rethrow error when interactive throws error in Lantern', async () => {
+    context = {settings: {throttlingMethod: 'simulate'}};
+    try {
+      await UnusedImages.audit_({
+        ViewportDimensions: DEFAULT_DIMENSIONS,
+        ImageUsage: [
+          generateImage(generateSize(0, 0), [0, 0], generateRecord(100, 3), 'a'),
+          generateImage(generateSize(200, 200), [3000, 0], generateRecord(100, 4), 'b'),
+        ],
+        traces: {},
+        devtoolsLogs: {},
+        requestInteractive: generateInteractiveFuncError(),
+        requestTraceOfTab: generateTraceOfTab(2),
+      }, [], context, [], context);
+    } catch (err) {
+      return;
+    }
+    assert.ok(false);
+  });
+
+  it('finds images loaded before Trace End when interactive throws error (Lantern)', async () => {
+    context = {settings: {throttlingMethod: 'simulate'}};
+    try {
+      await UnusedImages.audit_({
+        ViewportDimensions: DEFAULT_DIMENSIONS,
+        ImageUsage: [
+          generateImage(generateSize(0, 0), [0, 0], generateRecord(100, 1), 'a'),
+          generateImage(generateSize(200, 200), [3000, 0], generateRecord(100, 4), 'b'),
+        ],
+        traces: {},
+        devtoolsLogs: {},
+        requestInteractive: generateInteractiveFuncError(),
+        requestTraceOfTab: generateTraceOfTab(2),
+      }, [], context, [], context);
+    } catch (err) {
+      return;
+    }
+    assert.ok(false);
   });
 });

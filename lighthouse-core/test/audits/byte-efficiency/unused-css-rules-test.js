@@ -7,8 +7,10 @@
 
 const UnusedCSSAudit = require('../../../audits/byte-efficiency/unused-css-rules.js');
 const assert = require('assert');
+const Runner = require('../../../runner.js');
+const networkRecordsToDevtoolsLog = require('../../network-records-to-devtools-log.js');
 
-/* eslint-env mocha */
+/* eslint-env jest */
 
 describe('Best Practices: unused css rules audit', () => {
   function generate(content, length) {
@@ -102,48 +104,47 @@ describe('Best Practices: unused css rules audit', () => {
       };
     });
 
-    it('correctly computes potentialSavings', () => {
+    it('correctly computes wastedBytes', () => {
       assert.equal(map({usedRules: []}).wastedPercent, 100);
       assert.equal(map({usedRules: [{startOffset: 0, endOffset: 3}]}).wastedPercent, 40);
       assert.equal(map({usedRules: [{startOffset: 0, endOffset: 5}]}).wastedPercent, 0);
     });
 
     it('correctly computes url', () => {
-      const expectedPreview = {type: 'code', text: 'dummy'};
-      assert.deepEqual(map({header: {sourceURL: ''}}).url, expectedPreview);
-      assert.deepEqual(map({header: {sourceURL: 'a'}}, 'http://g.co/a').url, expectedPreview);
+      const expectedPreview = 'dummy';
+      assert.strictEqual(map({header: {sourceURL: ''}}).url, expectedPreview);
+      assert.strictEqual(map({header: {sourceURL: 'a'}}, 'http://g.co/a').url, expectedPreview);
       assert.equal(map({header: {sourceURL: 'foobar'}}).url, 'http://g.co/foobar');
     });
   });
 
   describe('#audit', () => {
-    const devtoolsLogs = {defaultPass: []};
-    const requestNetworkRecords = () => {
-      return Promise.resolve([
-        {
-          url: 'file://a.css',
-          _transferSize: 10 * 1024,
-          _resourceType: {_name: 'stylesheet'},
-        },
-      ]);
-    };
+    const networkRecords = [
+      {
+        url: 'file://a.css',
+        transferSize: 10 * 1024,
+        resourceType: 'Stylesheet',
+      },
+    ];
+
+    function getArtifacts({CSSUsage}) {
+      return Object.assign(Runner.instantiateComputedArtifacts(), {
+        devtoolsLogs: {defaultPass: networkRecordsToDevtoolsLog(networkRecords)},
+        URL: {finalUrl: ''},
+        CSSUsage,
+      });
+    }
 
     it('ignores missing stylesheets', () => {
-      return UnusedCSSAudit.audit_({
-        devtoolsLogs,
-        requestNetworkRecords,
-        URL: {finalUrl: ''},
+      return UnusedCSSAudit.audit_(getArtifacts({
         CSSUsage: {rules: [{styleSheetId: 'a', used: false}], stylesheets: []},
-      }).then(result => {
-        assert.equal(result.results.length, 0);
+      })).then(result => {
+        assert.equal(result.items.length, 0);
       });
     });
 
     it('ignores stylesheets that are 100% used', () => {
-      return UnusedCSSAudit.audit_({
-        devtoolsLogs,
-        requestNetworkRecords,
-        URL: {finalUrl: ''},
+      return UnusedCSSAudit.audit_(getArtifacts({
         CSSUsage: {rules: [
           {styleSheetId: 'a', used: true},
           {styleSheetId: 'a', used: true},
@@ -158,16 +159,13 @@ describe('Best Practices: unused css rules audit', () => {
             content: '.my.favorite.selector { rule: content; }',
           },
         ]},
-      }).then(result => {
-        assert.equal(result.results.length, 0);
+      })).then(result => {
+        assert.equal(result.items.length, 0);
       });
     });
 
     it('fails when lots of rules are unused', () => {
-      return UnusedCSSAudit.audit_({
-        devtoolsLogs,
-        requestNetworkRecords,
-        URL: {finalUrl: ''},
+      return UnusedCSSAudit.audit_(getArtifacts({
         CSSUsage: {rules: [
           {styleSheetId: 'a', used: true, startOffset: 0, endOffset: 11}, // 44 * 1 / 4
           {styleSheetId: 'b', used: true, startOffset: 0, endOffset: 6000}, // 4000 * 3 / 2
@@ -185,20 +183,17 @@ describe('Best Practices: unused css rules audit', () => {
             content: `${generate('123', 450)}`, // will be filtered out
           },
         ]},
-      }).then(result => {
-        assert.equal(result.results.length, 2);
-        assert.equal(result.results[0].totalBytes, 10 * 1024);
-        assert.equal(result.results[1].totalBytes, 6000);
-        assert.equal(result.results[0].wastedPercent, 75);
-        assert.equal(result.results[1].wastedPercent, 50);
+      })).then(result => {
+        assert.equal(result.items.length, 2);
+        assert.equal(result.items[0].totalBytes, 10 * 1024);
+        assert.equal(result.items[1].totalBytes, 6000);
+        assert.equal(result.items[0].wastedPercent, 75);
+        assert.equal(result.items[1].wastedPercent, 50);
       });
     });
 
     it('does not include empty or small sheets', () => {
-      return UnusedCSSAudit.audit_({
-        devtoolsLogs,
-        requestNetworkRecords,
-        URL: {finalUrl: ''},
+      return UnusedCSSAudit.audit_(getArtifacts({
         CSSUsage: {rules: [
           {styleSheetId: 'a', used: true, startOffset: 0, endOffset: 8000}, // 4000 * 3 / 2
           {styleSheetId: 'b', used: true, startOffset: 0, endOffset: 500}, // 500 * 3 / 3
@@ -224,9 +219,9 @@ describe('Best Practices: unused css rules audit', () => {
             content: '       ',
           },
         ]},
-      }).then(result => {
-        assert.equal(result.results.length, 1);
-        assert.equal(Math.floor(result.results[0].wastedPercent), 33);
+      })).then(result => {
+        assert.equal(result.items.length, 1);
+        assert.equal(Math.floor(result.items[0].wastedPercent), 33);
       });
     });
   });

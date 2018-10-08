@@ -10,14 +10,13 @@ const assert = require('assert');
 const manifestParser = require('../../lib/manifest-parser');
 
 const manifestSrc = JSON.stringify(require('../fixtures/manifest.json'));
+const manifestDirtyJpgSrc = JSON.stringify(require('../fixtures/manifest-dirty-jpg.json'));
 const EXAMPLE_MANIFEST_URL = 'https://example.com/manifest.json';
 const EXAMPLE_DOC_URL = 'https://example.com/index.html';
-const exampleManifest = manifestParser(manifestSrc, EXAMPLE_MANIFEST_URL, EXAMPLE_DOC_URL);
 
-const Runner = require('../../runner.js');
+function generateMockArtifacts(src = manifestSrc) {
+  const exampleManifest = manifestParser(src, EXAMPLE_MANIFEST_URL, EXAMPLE_DOC_URL);
 
-function generateMockArtifacts() {
-  const computedArtifacts = Runner.instantiateComputedArtifacts();
   const clonedArtifacts = JSON.parse(JSON.stringify({
     Manifest: exampleManifest,
     ServiceWorker: {
@@ -29,46 +28,54 @@ function generateMockArtifacts() {
     StartUrl: {statusCode: 200},
     URL: {finalUrl: 'https://example.com'},
   }));
-  const mockArtifacts = Object.assign({}, computedArtifacts, clonedArtifacts);
-  return mockArtifacts;
+  return clonedArtifacts;
+}
+function generateMockAuditContext() {
+  return {
+    computedCache: new Map(),
+  };
 }
 
-/* eslint-env mocha */
+/* eslint-env jest */
 describe('PWA: webapp install banner audit', () => {
   describe('basics', () => {
     it('fails if page had no manifest', () => {
       const artifacts = generateMockArtifacts();
       artifacts.Manifest = null;
+      const context = generateMockAuditContext();
 
-      return WebappInstallBannerAudit.audit(artifacts).then(result => {
+      return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
         assert.strictEqual(result.rawValue, false);
-        assert.ok(result.debugString.includes('No manifest was fetched'), result.debugString);
+        assert.ok(result.explanation.includes('No manifest was fetched'), result.explanation);
       });
     });
 
     it('fails with a non-parsable manifest', () => {
       const artifacts = generateMockArtifacts();
       artifacts.Manifest = manifestParser('{,:}', EXAMPLE_MANIFEST_URL, EXAMPLE_DOC_URL);
-      return WebappInstallBannerAudit.audit(artifacts).then(result => {
+      const context = generateMockAuditContext();
+      return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
         assert.strictEqual(result.rawValue, false);
-        assert.ok(result.debugString.includes('failed to parse as valid JSON'));
+        assert.ok(result.explanation.includes('failed to parse as valid JSON'));
       });
     });
 
     it('fails when an empty manifest is present', () => {
       const artifacts = generateMockArtifacts();
       artifacts.Manifest = manifestParser('{}', EXAMPLE_MANIFEST_URL, EXAMPLE_DOC_URL);
-      return WebappInstallBannerAudit.audit(artifacts).then(result => {
+      const context = generateMockAuditContext();
+      return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
         assert.strictEqual(result.rawValue, false);
-        assert.ok(result.debugString);
-        assert.strictEqual(result.extendedInfo.value.failures.length, 4);
+        assert.ok(result.explanation);
+        assert.strictEqual(result.details.items[0].failures.length, 4);
       });
     });
 
     it('passes with complete manifest and SW', () => {
-      return WebappInstallBannerAudit.audit(generateMockArtifacts()).then(result => {
-        assert.strictEqual(result.rawValue, true, result.debugString);
-        assert.strictEqual(result.debugString, undefined, result.debugString);
+      const context = generateMockAuditContext();
+      return WebappInstallBannerAudit.audit(generateMockArtifacts(), context).then(result => {
+        assert.strictEqual(result.rawValue, true, result.explanation);
+        assert.strictEqual(result.explanation, undefined, result.explanation);
       });
     });
   });
@@ -78,11 +85,12 @@ describe('PWA: webapp install banner audit', () => {
     it('fails when a manifest contains no start_url', () => {
       const artifacts = generateMockArtifacts();
       artifacts.Manifest.value.start_url.value = undefined;
+      const context = generateMockAuditContext();
 
-      return WebappInstallBannerAudit.audit(artifacts).then(result => {
+      return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
         assert.strictEqual(result.rawValue, false);
-        assert.ok(result.debugString.includes('start_url'), result.debugString);
-        const failures = result.extendedInfo.value.failures;
+        assert.ok(result.explanation.includes('start_url'), result.explanation);
+        const failures = result.details.items[0].failures;
         assert.strictEqual(failures.length, 1, failures);
       });
     });
@@ -91,11 +99,12 @@ describe('PWA: webapp install banner audit', () => {
     it('fails when a manifest contains no short_name', () => {
       const artifacts = generateMockArtifacts();
       artifacts.Manifest.value.short_name.value = undefined;
+      const context = generateMockAuditContext();
 
-      return WebappInstallBannerAudit.audit(artifacts).then(result => {
+      return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
         assert.strictEqual(result.rawValue, false);
-        assert.ok(result.debugString.includes('short_name'), result.debugString);
-        const failures = result.extendedInfo.value.failures;
+        assert.ok(result.explanation.includes('short_name'), result.explanation);
+        const failures = result.details.items[0].failures;
         assert.strictEqual(failures.length, 1, failures);
       });
     });
@@ -103,11 +112,12 @@ describe('PWA: webapp install banner audit', () => {
     it('fails when a manifest contains no name', () => {
       const artifacts = generateMockArtifacts();
       artifacts.Manifest.value.name.value = undefined;
+      const context = generateMockAuditContext();
 
-      return WebappInstallBannerAudit.audit(artifacts).then(result => {
+      return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
         assert.strictEqual(result.rawValue, false);
-        assert.ok(result.debugString.includes('name'), result.debugString);
-        const failures = result.extendedInfo.value.failures;
+        assert.ok(result.explanation.includes('name'), result.explanation);
+        const failures = result.details.items[0].failures;
         assert.strictEqual(failures.length, 1, failures);
       });
     });
@@ -115,13 +125,26 @@ describe('PWA: webapp install banner audit', () => {
     it('fails if page had no icons in the manifest', () => {
       const artifacts = generateMockArtifacts();
       artifacts.Manifest.value.icons.value = [];
+      const context = generateMockAuditContext();
 
-      return WebappInstallBannerAudit.audit(artifacts).then(result => {
+      return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
         assert.strictEqual(result.rawValue, false);
-        assert.ok(result.debugString.includes('icons'), result.debugString);
-        const failures = result.extendedInfo.value.failures;
+        assert.ok(result.explanation.includes('PNG icon'), result.explanation);
+        const failures = result.details.items[0].failures;
         assert.strictEqual(failures.length, 1, failures);
       });
+    });
+  });
+
+  it('fails if icons were present, but no valid PNG present', () => {
+    const artifacts = generateMockArtifacts(manifestDirtyJpgSrc);
+    const context = generateMockAuditContext();
+
+    return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
+      assert.strictEqual(result.rawValue, false);
+      assert.ok(result.explanation.includes('PNG icon'), result.explanation);
+      const failures = result.details.items[0].failures;
+      assert.strictEqual(failures.length, 1, failures);
     });
   });
 
@@ -129,35 +152,37 @@ describe('PWA: webapp install banner audit', () => {
     const artifacts = generateMockArtifacts();
     artifacts.ServiceWorker.versions = [];
     artifacts.StartUrl = {statusCode: -1};
+    const context = generateMockAuditContext();
 
-    return WebappInstallBannerAudit.audit(artifacts).then(result => {
+    return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
       assert.strictEqual(result.rawValue, false);
-      assert.ok(result.debugString.includes('service worker'), result.debugString);
-      const failures = result.extendedInfo.value.failures;
-      // start url will be -1 as well so failures will be 2
-      assert.strictEqual(failures.length, 2, failures);
+      assert.ok(result.explanation.includes('service worker'), result.explanation);
+      const failures = result.details.items[0].failures;
+      assert.strictEqual(failures.length, 1, failures);
     });
   });
 
   it('fails if start_url is not cached', () => {
     const artifacts = generateMockArtifacts();
     artifacts.StartUrl = {statusCode: -1};
+    const context = generateMockAuditContext();
 
-    return WebappInstallBannerAudit.audit(artifacts).then(result => {
+    return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
       assert.strictEqual(result.rawValue, false);
-      assert.ok(result.debugString.includes('start_url'), result.debugString);
-      const failures = result.extendedInfo.value.failures;
+      assert.ok(result.explanation.includes('start_url'), result.explanation);
+      const failures = result.details.items[0].failures;
       assert.strictEqual(failures.length, 1, failures);
     });
   });
 
-  it('includes debugString from start_url', () => {
+  it('includes warning from start_url', () => {
     const artifacts = generateMockArtifacts();
-    artifacts.StartUrl = {statusCode: 200, debugString: 'Warning!'};
+    artifacts.StartUrl = {statusCode: 200, explanation: 'Warning!'};
+    const context = generateMockAuditContext();
 
-    return WebappInstallBannerAudit.audit(artifacts).then(result => {
+    return WebappInstallBannerAudit.audit(artifacts, context).then(result => {
       assert.strictEqual(result.rawValue, true);
-      assert.equal(result.debugString, 'Warnings: Warning!');
+      assert.equal(result.warnings[0], 'Warning!');
     });
   });
 });

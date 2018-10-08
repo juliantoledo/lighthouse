@@ -10,9 +10,9 @@ const UnminifiedJavascriptAudit =
   require('../../../audits/byte-efficiency/unminified-javascript.js');
 const assert = require('assert');
 
-/* eslint-env mocha */
+/* eslint-env jest */
 
-const _resourceType = {_name: 'script'};
+const resourceType = 'Script';
 describe('Page uses optimized responses', () => {
   it('fails when given unminified scripts', () => {
     const auditResult = UnminifiedJavascriptAudit.audit_({
@@ -43,26 +43,25 @@ describe('Page uses optimized responses', () => {
             const foo = 1
             /Edge\/\d*\.\d*/.exec('foo')
           `,
-        '123.4': '#$*% non sense',
+        '123.4': '#$*%dense',
       },
     }, [
-      {requestId: '123.1', url: 'foo.js', _transferSize: 20 * KB, _resourceType},
-      {requestId: '123.2', url: 'other.js', _transferSize: 50 * KB, _resourceType},
-      {requestId: '123.3', url: 'valid-ish.js', _transferSize: 100 * KB, _resourceType},
-      {requestId: '123.4', url: 'invalid.js', _transferSize: 100 * KB, _resourceType},
+      {requestId: '123.1', url: 'foo.js', transferSize: 20 * KB, resourceType},
+      {requestId: '123.2', url: 'other.js', transferSize: 50 * KB, resourceType},
+      {requestId: '123.3', url: 'valid-ish.js', transferSize: 100 * KB, resourceType},
+      {requestId: '123.4', url: 'invalid.js', transferSize: 100 * KB, resourceType},
     ]);
 
-    assert.ok(auditResult.debugString);
-    assert.equal(auditResult.results.length, 3);
-    assert.equal(auditResult.results[0].url, 'foo.js');
-    assert.equal(Math.round(auditResult.results[0].wastedPercent), 57);
-    assert.equal(Math.round(auditResult.results[0].wastedBytes / 1024), 11);
-    assert.equal(auditResult.results[1].url, 'other.js');
-    assert.equal(Math.round(auditResult.results[1].wastedPercent), 53);
-    assert.equal(Math.round(auditResult.results[1].wastedBytes / 1024), 27);
-    assert.equal(auditResult.results[2].url, 'valid-ish.js');
-    assert.equal(Math.round(auditResult.results[2].wastedPercent), 72);
-    assert.equal(Math.round(auditResult.results[2].wastedBytes / 1024), 72);
+    const results = auditResult.items.map(item => Object.assign(item, {
+      wastedKB: Math.round(item.wastedBytes / 1024),
+      wastedPercent: Math.round(item.wastedPercent),
+    }));
+
+    expect(results).toMatchObject([
+      {url: 'foo.js', wastedPercent: 57, wastedKB: 11},
+      {url: 'other.js', wastedPercent: 53, wastedKB: 27},
+      {url: 'valid-ish.js', wastedPercent: 39, wastedKB: 39},
+    ]);
   });
 
   it('passes when scripts are already minified', () => {
@@ -84,11 +83,11 @@ describe('Page uses optimized responses', () => {
           'for{(wtf',
       },
     }, [
-      {requestId: '123.1', url: 'foo.js', _transferSize: 20 * KB, _resourceType},
-      {requestId: '123.2', url: 'other.js', _transferSize: 3 * KB, _resourceType},
-      {requestId: '123.3', url: 'invalid.js', _transferSize: 20 * KB, _resourceType},
+      {requestId: '123.1', url: 'foo.js', transferSize: 20 * KB, resourceType},
+      {requestId: '123.2', url: 'other.js', transferSize: 3 * KB, resourceType}, // too small
+      {requestId: '123.3', url: 'invalid.js', transferSize: 20 * KB, resourceType},
     ]);
 
-    assert.equal(auditResult.results.length, 0);
+    assert.equal(auditResult.items.length, 0);
   });
 });

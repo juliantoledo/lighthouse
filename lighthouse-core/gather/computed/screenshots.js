@@ -5,38 +5,25 @@
  */
 'use strict';
 
-const ComputedArtifact = require('./computed-artifact');
+const makeComputedArtifact = require('./new-computed-artifact');
 
-class ScreenshotFilmstrip extends ComputedArtifact {
-  get name() {
-    return 'Screenshots';
-  }
+const SCREENSHOT_TRACE_NAME = 'Screenshot';
 
-  fetchScreenshot(frame) {
-    return frame
-      .imageDataPromise()
-      .then(data => 'data:image/jpg;base64,' + data);
-  }
-
+class Screenshots {
   /**
-   * @param {{traceEvents: !Array}} trace
-   * @param {!Artifacts} trace
-   * @return {!Promise}
+   * @param {LH.Trace} trace
+   * @return {Promise<Array<{timestamp: number, datauri: string}>>}
   */
-  compute_(trace, artifacts) {
-    return artifacts.requestDevtoolsTimelineModel(trace).then(model => {
-      const filmStripFrames = model.filmStripModel().frames();
-      const frameFetches = filmStripFrames.map(frame => this.fetchScreenshot(frame));
-
-      return Promise.all(frameFetches).then(images => {
-        const result = filmStripFrames.map((frame, i) => ({
-          timestamp: frame.timestamp,
-          datauri: images[i],
-        }));
-        return result;
+  static async compute_(trace) {
+    return trace.traceEvents
+      .filter(evt => evt.name === SCREENSHOT_TRACE_NAME)
+      .map(evt => {
+        return {
+          timestamp: evt.ts / 1000,
+          datauri: `data:image/jpeg;base64,${evt.args.snapshot}`,
+        };
       });
-    });
   }
 }
 
-module.exports = ScreenshotFilmstrip;
+module.exports = makeComputedArtifact(Screenshots);

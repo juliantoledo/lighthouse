@@ -7,9 +7,12 @@
 
 const CacheHeadersAudit = require('../../../audits/byte-efficiency/uses-long-cache-ttl.js');
 const assert = require('assert');
-const WebInspector = require('../../../lib/web-inspector');
+const NetworkRequest = require('../../../lib/network-request');
+const options = CacheHeadersAudit.defaultOptions;
+const Runner = require('../../../runner.js');
+const networkRecordsToDevtoolsLog = require('../../network-records-to-devtools-log.js');
 
-/* eslint-env mocha */
+/* eslint-env jest */
 
 function networkRecord(options = {}) {
   const headers = [];
@@ -18,73 +21,56 @@ function networkRecord(options = {}) {
   });
 
   return {
-    _url: options.url || 'https://example.com/asset',
+    url: options.url || 'https://example.com/asset',
     statusCode: options.statusCode || 200,
-    _resourceType: options.resourceType || WebInspector.resourceTypes.Script,
-    _transferSize: options.transferSize || 10000,
-    _responseHeaders: headers,
+    resourceType: options.resourceType || NetworkRequest.TYPES.Script,
+    transferSize: options.transferSize || 10000,
+    responseHeaders: headers,
   };
 }
 
 describe('Cache headers audit', () => {
-  let artifacts;
-  let networkRecords;
+  function getArtifacts(networkRecords) {
+    const devtoolLogs = networkRecordsToDevtoolsLog(networkRecords);
 
-  beforeEach(() => {
-    artifacts = {
-      devtoolsLogs: {},
-      requestNetworkRecords: () => Promise.resolve(networkRecords),
+    return Object.assign(Runner.instantiateComputedArtifacts(), {
+      devtoolsLogs: {
+        [CacheHeadersAudit.DEFAULT_PASS]: devtoolLogs,
+      },
       requestNetworkThroughput: () => Promise.resolve(1000),
-    };
-  });
-
-  describe('#linearInterpolation', () => {
-    it('correctly interpolates when slope is 2', () => {
-      const slopeOf2 = x => CacheHeadersAudit.linearInterpolation(0, 0, 10, 20, x);
-      assert.equal(slopeOf2(-10), -20);
-      assert.equal(slopeOf2(5), 10);
-      assert.equal(slopeOf2(10), 20);
     });
-
-    it('correctly interpolates when slope is 0', () => {
-      const slopeOf0 = x => CacheHeadersAudit.linearInterpolation(0, 0, 10, 0, x);
-      assert.equal(slopeOf0(-10), 0);
-      assert.equal(slopeOf0(5), 0);
-      assert.equal(slopeOf0(10), 0);
-    });
-  });
+  }
 
   it('detects missing cache headers', () => {
-    networkRecords = [networkRecord()];
-    return CacheHeadersAudit.audit(artifacts).then(result => {
+    const networkRecords = [networkRecord()];
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
       const items = result.extendedInfo.value.results;
       assert.equal(items.length, 1);
-      assert.equal(items[0].cacheLifetimeInSeconds, 0);
+      assert.equal(items[0].cacheLifetimeMs, 0);
       assert.equal(items[0].wastedBytes, 10000);
-      assert.equal(result.displayValue, '1 asset found');
+      expect(result.displayValue).toBeDisplayString('1 resource found');
     });
   });
 
   it('detects low value max-age headers', () => {
-    networkRecords = [
+    const networkRecords = [
       networkRecord({headers: {'cache-control': 'max-age=3600'}}), // an hour
       networkRecord({headers: {'cache-control': 'max-age=3600'}, transferSize: 100000}), // an hour
       networkRecord({headers: {'cache-control': 'max-age=86400'}}), // a day
       networkRecord({headers: {'cache-control': 'max-age=31536000'}}), // a year
     ];
 
-    return CacheHeadersAudit.audit(artifacts).then(result => {
-      const items = result.extendedInfo.value.results;
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
+      const items = result.details.items;
       assert.equal(items.length, 3);
-      assert.equal(items[0].cacheLifetimeInSeconds, 3600);
-      assert.equal(items[0].cacheLifetimeDisplay, '1\xa0h');
-      assert.equal(items[0].cacheHitProbability, .2);
+      assert.equal(items[0].cacheLifetimeMs, 3600 * 1000);
+      assert.equal(items[0].cacheHitProbability, 0.2);
       assert.equal(Math.round(items[0].wastedBytes), 80000);
-      assert.equal(items[1].cacheLifetimeInSeconds, 3600);
+      assert.equal(items[1].cacheLifetimeMs, 3600 * 1000);
       assert.equal(Math.round(items[1].wastedBytes), 8000);
-      assert.equal(items[2].cacheLifetimeDisplay, '1\xa0d');
+      assert.equal(items[2].cacheLifetimeMs, 86400 * 1000);
       assert.equal(Math.round(items[2].wastedBytes), 4000);
-      assert.equal(result.displayValue, '3 assets found');
+      expect(result.displayValue).toBeDisplayString('3 resources found');
     });
   });
 
@@ -92,21 +78,21 @@ describe('Cache headers audit', () => {
     const expiresIn = seconds => new Date(Date.now() + seconds * 1000).toGMTString();
     const closeEnough = (actual, exp) => assert.ok(Math.abs(actual - exp) <= 1, 'invalid expires');
 
-    networkRecords = [
+    const networkRecords = [
       networkRecord({headers: {expires: expiresIn(86400 * 365)}}), // a year
       networkRecord({headers: {expires: expiresIn(86400 * 90)}}), // 3 months
       networkRecord({headers: {expires: expiresIn(86400)}}), // a day
       networkRecord({headers: {expires: expiresIn(3600)}}), // an hour
     ];
 
-    return CacheHeadersAudit.audit(artifacts).then(result => {
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
       const items = result.extendedInfo.value.results;
       assert.equal(items.length, 3);
-      closeEnough(items[0].cacheLifetimeInSeconds, 3600);
+      closeEnough(items[0].cacheLifetimeMs, 3600 * 1000);
       assert.equal(Math.round(items[0].wastedBytes), 8000);
-      closeEnough(items[1].cacheLifetimeInSeconds, 86400);
+      closeEnough(items[1].cacheLifetimeMs, 86400 * 1000);
       assert.equal(Math.round(items[1].wastedBytes), 4000);
-      closeEnough(items[2].cacheLifetimeInSeconds, 86400 * 90);
+      closeEnough(items[2].cacheLifetimeMs, 86400 * 90 * 1000);
       assert.equal(Math.round(items[2].wastedBytes), 768);
     });
   });
@@ -114,7 +100,7 @@ describe('Cache headers audit', () => {
   it('respects expires/cache-control priority', () => {
     const expiresIn = seconds => new Date(Date.now() + seconds * 1000).toGMTString();
 
-    networkRecords = [
+    const networkRecords = [
       networkRecord({headers: {
         'cache-control': 'must-revalidate,max-age=3600',
         'expires': expiresIn(86400),
@@ -125,30 +111,49 @@ describe('Cache headers audit', () => {
       }}),
     ];
 
-    return CacheHeadersAudit.audit(artifacts).then(result => {
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
       const items = result.extendedInfo.value.results;
       assert.equal(items.length, 2);
-      assert.ok(Math.abs(items[0].cacheLifetimeInSeconds - 3600) <= 1, 'invalid expires parsing');
+      assert.ok(Math.abs(items[0].cacheLifetimeMs - 3600 * 1000) <= 1, 'invalid expires parsing');
       assert.equal(Math.round(items[0].wastedBytes), 8000);
-      assert.ok(Math.abs(items[1].cacheLifetimeInSeconds - 86400) <= 1, 'invalid expires parsing');
+      assert.ok(Math.abs(items[1].cacheLifetimeMs - 86400 * 1000) <= 1, 'invalid expires parsing');
       assert.equal(Math.round(items[1].wastedBytes), 4000);
     });
   });
 
+  it('respects multiple cache-control headers', () => {
+    const networkRecords = [
+      networkRecord({headers: {
+        'cache-control': 'max-age=31536000, public',
+        'Cache-control': 'no-transform',
+      }}),
+      networkRecord({headers: {
+        'Cache-Control': 'no-transform',
+        'cache-control': 'max-age=3600',
+        'Cache-control': 'public',
+      }}),
+    ];
+
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
+      const items = result.extendedInfo.value.results;
+      assert.equal(items.length, 1);
+    });
+  });
+
   it('catches records with Etags', () => {
-    networkRecords = [
+    const networkRecords = [
       networkRecord({headers: {etag: 'md5hashhere'}}),
       networkRecord({headers: {'etag': 'md5hashhere', 'cache-control': 'max-age=60'}}),
     ];
 
-    return CacheHeadersAudit.audit(artifacts).then(result => {
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
       const items = result.extendedInfo.value.results;
       assert.equal(items.length, 2);
     });
   });
 
   it('ignores explicit no-cache policies', () => {
-    networkRecords = [
+    const networkRecords = [
       networkRecord({headers: {expires: '-1'}}),
       networkRecord({headers: {'cache-control': 'no-store'}}),
       networkRecord({headers: {'cache-control': 'no-cache'}}),
@@ -156,23 +161,23 @@ describe('Cache headers audit', () => {
       networkRecord({headers: {pragma: 'no-cache'}}),
     ];
 
-    return CacheHeadersAudit.audit(artifacts).then(result => {
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
       const items = result.extendedInfo.value.results;
-      assert.equal(result.score, 100);
+      assert.equal(result.score, 1);
       assert.equal(items.length, 0);
     });
   });
 
   it('ignores potentially uncacheable records', () => {
-    networkRecords = [
+    const networkRecords = [
       networkRecord({statusCode: 500}),
-      networkRecord({url: 'https://example.com/dynamic.js?userId=crazy'}),
+      networkRecord({url: 'https://example.com/dynamic.js?userId=crazy', transferSize: 10}),
       networkRecord({url: 'data:image/jpeg;base64,what'}),
-      networkRecord({resourceType: WebInspector.resourceTypes.XHR}),
+      networkRecord({resourceType: NetworkRequest.TYPES.XHR}),
     ];
 
-    return CacheHeadersAudit.audit(artifacts).then(result => {
-      assert.equal(result.score, 100);
+    return CacheHeadersAudit.audit(getArtifacts(networkRecords), {options}).then(result => {
+      assert.equal(result.score, 1);
       const items = result.extendedInfo.value.results;
       assert.equal(items.length, 1);
       assert.equal(result.extendedInfo.value.queryStringCount, 1);

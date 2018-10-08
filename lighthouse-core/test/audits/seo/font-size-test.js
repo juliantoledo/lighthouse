@@ -7,12 +7,11 @@
 
 const FontSizeAudit = require('../../../audits/seo/font-size.js');
 const assert = require('assert');
-const CSSStyleDeclaration = require('../../../lib/web-inspector').CSSStyleDeclaration;
 
 const URL = 'https://example.com';
 const validViewport = 'width=device-width';
 
-/* eslint-env mocha */
+/* eslint-env jest */
 
 describe('SEO: Font size audit', () => {
   it('fails when viewport is not set', () => {
@@ -24,7 +23,7 @@ describe('SEO: Font size audit', () => {
 
     const auditResult = FontSizeAudit.audit(artifacts);
     assert.equal(auditResult.rawValue, false);
-    assert.ok(auditResult.debugString.includes('missing viewport'));
+    assert.ok(auditResult.explanation.includes('missing viewport'));
   });
 
   it('fails when less than 60% of text is legible', () => {
@@ -45,7 +44,7 @@ describe('SEO: Font size audit', () => {
 
     const auditResult = FontSizeAudit.audit(artifacts);
     assert.equal(auditResult.rawValue, false);
-    assert.ok(auditResult.debugString.includes('41%'));
+    assert.ok(auditResult.explanation.includes('41%'));
   });
 
   it('passes when there is no text', () => {
@@ -89,7 +88,7 @@ describe('SEO: Font size audit', () => {
   it('groups entries with same source, sorts them by coverage', () => {
     const style1 = {
       styleSheetId: 1,
-      type: CSSStyleDeclaration.Type.Regular,
+      type: 'Regular',
       range: {
         startLine: 123,
         startColumn: 10,
@@ -97,7 +96,7 @@ describe('SEO: Font size audit', () => {
     };
     const style2 = {
       styleSheetId: 1,
-      type: CSSStyleDeclaration.Type.Regular,
+      type: 'Regular',
       range: {
         startLine: 0,
         startColumn: 10,
@@ -122,7 +121,7 @@ describe('SEO: Font size audit', () => {
 
     assert.equal(auditResult.rawValue, false);
     assert.equal(auditResult.details.items.length, 2);
-    assert.equal(auditResult.details.items[0][2].text, '57.14%');
+    assert.equal(auditResult.details.items[0].coverage, '57.14%');
   });
 
   it('adds a category for failing text that wasn\'t analyzed', () => {
@@ -142,8 +141,8 @@ describe('SEO: Font size audit', () => {
     const auditResult = FontSizeAudit.audit(artifacts);
     assert.equal(auditResult.rawValue, false);
     assert.equal(auditResult.details.items.length, 3);
-    assert.equal(auditResult.details.items[1][0].text, 'Add\'l illegible text');
-    assert.equal(auditResult.details.items[1][2].text, '40.00%');
+    assert.equal(auditResult.details.items[1].source, 'Add\'l illegible text');
+    assert.equal(auditResult.details.items[1].coverage, '40.00%');
   });
 
   it('informs user if audit haven\'t covered all text on the page', () => {
@@ -162,6 +161,6 @@ describe('SEO: Font size audit', () => {
     };
     const auditResult = FontSizeAudit.audit(artifacts);
     assert.equal(auditResult.rawValue, false);
-    assert.ok(auditResult.debugString.includes('50%'));
+    assert.ok(auditResult.explanation.includes('50%'));
   });
 });

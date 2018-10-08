@@ -5,10 +5,11 @@
  */
 'use strict';
 
-/* eslint-env mocha */
+/* eslint-env jest */
 
 const Runner = require('../../../runner.js');
 const assert = require('assert');
+const networkRecordsToDevtoolsLog = require('../../network-records-to-devtools-log.js');
 
 describe('MainResource computed artifact', () => {
   let computedArtifacts;
@@ -25,11 +26,11 @@ describe('MainResource computed artifact', () => {
       {url: 'http://example.com'},
       record,
     ];
-    computedArtifacts.requestNetworkRecords = _ => Promise.resolve(networkRecords);
-    computedArtifacts.URL = {finalUrl: 'https://example.com'};
+    const URL = {finalUrl: 'https://example.com'};
+    const devtoolsLog = networkRecordsToDevtoolsLog(networkRecords);
 
-    return computedArtifacts.requestMainResource({}).then(output => {
-      assert.equal(output, record);
+    return computedArtifacts.requestMainResource({URL, devtoolsLog}).then(output => {
+      assert.equal(output.url, record.url);
     });
   });
 
@@ -37,10 +38,10 @@ describe('MainResource computed artifact', () => {
     const networkRecords = [
       {url: 'https://example.com'},
     ];
-    computedArtifacts.requestNetworkRecords = _ => Promise.resolve(networkRecords);
-    computedArtifacts.URL = {finalUrl: 'https://m.example.com'};
+    const URL = {finalUrl: 'https://m.example.com'};
+    const devtoolsLog = networkRecordsToDevtoolsLog(networkRecords);
 
-    return computedArtifacts.requestMainResource({}).then(() => {
+    return computedArtifacts.requestMainResource({URL, devtoolsLog}).then(() => {
       assert.ok(false, 'should have thrown');
     }).catch(err => {
       assert.equal(err.message, 'Unable to identify the main resource');
@@ -49,10 +50,26 @@ describe('MainResource computed artifact', () => {
 
   it('should identify correct main resource in the wikipedia fixture', () => {
     const wikiDevtoolsLog = require('../../fixtures/wikipedia-redirect.devtoolslog.json');
-    computedArtifacts.URL = {finalUrl: 'https://en.m.wikipedia.org/wiki/Main_Page'};
+    const URL = {finalUrl: 'https://en.m.wikipedia.org/wiki/Main_Page'};
+    const artifacts = {devtoolsLog: wikiDevtoolsLog, URL};
 
-    return computedArtifacts.requestMainResource(wikiDevtoolsLog).then(output => {
+    return computedArtifacts.requestMainResource(artifacts).then(output => {
       assert.equal(output.url, 'https://en.m.wikipedia.org/wiki/Main_Page');
+    });
+  });
+
+  it('should identify correct main resource with hash URLs', () => {
+    const networkRecords = [
+      {url: 'https://beta.httparchive.org/reports'},
+      {url: 'https://beta.httparchive.org/reports/state-of-the-web'},
+    ];
+
+    const URL = {finalUrl: 'https://beta.httparchive.org/reports/state-of-the-web#pctHttps'};
+    const devtoolsLog = networkRecordsToDevtoolsLog(networkRecords);
+    const artifacts = {URL, devtoolsLog};
+
+    return computedArtifacts.requestMainResource(artifacts).then(output => {
+      assert.equal(output.url, 'https://beta.httparchive.org/reports/state-of-the-web');
     });
   });
 });

@@ -5,11 +5,13 @@
  */
 'use strict';
 
-const WebInspector = require('../../lib/web-inspector');
+const NetworkRequest = require('../../lib/network-request');
 const Audit = require('../../audits/font-display.js');
 const assert = require('assert');
+const Runner = require('../../runner.js');
+const networkRecordsToDevtoolsLog = require('../network-records-to-devtools-log.js');
 
-/* eslint-env mocha */
+/* eslint-env jest */
 const openSansFont = {
   display: 'auto',
   family: 'open Sans',
@@ -34,11 +36,10 @@ const openSansFontBold = {
 
 describe('Performance: Font Display audit', () => {
   function getArtifacts(networkRecords, fonts) {
-    return {
-      devtoolsLogs: {[Audit.DEFAULT_PASS]: []},
-      requestNetworkRecords: () => Promise.resolve(networkRecords),
+    return Object.assign({
+      devtoolsLogs: {[Audit.DEFAULT_PASS]: networkRecordsToDevtoolsLog(networkRecords)},
       Fonts: fonts,
-    };
+    }, Runner.instantiateComputedArtifacts());
   }
 
   it('fails when not all fonts have a correct font-display rule', () => {
@@ -50,20 +51,19 @@ describe('Performance: Font Display audit', () => {
     return Audit.audit(getArtifacts([
       {
         url: openSansFont.src[0],
-        _endTime: 3, _startTime: 1,
-        _resourceType: WebInspector.resourceTypes.Font,
+        endTime: 3, startTime: 1,
+        resourceType: NetworkRequest.TYPES.Font,
       },
       {
         url: openSansFontBold.src[0],
-        _endTime: 3, _startTime: 1,
-        _resourceType: WebInspector.resourceTypes.Font,
+        endTime: 3, startTime: 1,
+        resourceType: NetworkRequest.TYPES.Font,
       },
     ], webFonts)).then(result => {
-      const items = [[{
-        type: 'url',
-        text: openSansFontBold.src[0],
-      },
-      {type: 'text', text: '2,000 ms'}]];
+      const items = [{
+        url: openSansFontBold.src[0],
+        wastedMs: 2000,
+      }];
       assert.strictEqual(result.rawValue, false);
       assert.deepEqual(result.details.items, items);
     });
@@ -78,13 +78,13 @@ describe('Performance: Font Display audit', () => {
     return Audit.audit(getArtifacts([
       {
         url: openSansFont.src[0],
-        _endTime: 3, _startTime: 1,
-        _resourceType: WebInspector.resourceTypes.Font,
+        endTime: 3, startTime: 1,
+        resourceType: NetworkRequest.TYPES.Font,
       },
       {
         url: openSansFontBold.src[0],
-        _endTime: 3, _startTime: 1,
-        _resourceType: WebInspector.resourceTypes.Font,
+        endTime: 3, startTime: 1,
+        resourceType: NetworkRequest.TYPES.Font,
       },
     ], webFonts)).then(result => {
       assert.strictEqual(result.rawValue, true);
