@@ -5,10 +5,7 @@
  */
 'use strict';
 
-<<<<<<< HEAD
-/* global DOM, CategoryRenderer, DetailsRenderer, ViewerUIFeatures, ReportRenderer, DragAndDrop, logger */
-=======
-/* global DOM, ViewerUIFeatures, ReportRenderer, DragAndDrop, GithubApi, logger, idbKeyval */
+/* global DOM, ViewerUIFeatures, ReportRenderer, DragAndDrop, logger, idbKeyval */
 
 /**
  * Guaranteed context.querySelector. Always returns an element or throws if
@@ -25,7 +22,6 @@ function find(query, context) {
   }
   return result;
 }
->>>>>>> 6278e121f71053a6f7b28ef3483317d96b52c69b
 
 /**
  * Class that manages viewing Lighthouse reports.
