@@ -9,11 +9,13 @@ const fs = require('fs');
 const path = require('path');
 const log = require('lighthouse-logger');
 const stream = require('stream');
-const Simulator = require('./dependency-graph/simulator/simulator');
-const lanternTraceSaver = require('./lantern-trace-saver');
-const Metrics = require('./traces/pwmetrics-events');
+const Simulator = require('./dependency-graph/simulator/simulator.js');
+const lanternTraceSaver = require('./lantern-trace-saver.js');
+const Metrics = require('./traces/pwmetrics-events.js');
 const rimraf = require('rimraf');
 const mkdirp = require('mkdirp');
+const NetworkAnalysisComputed = require('../computed/network-analysis.js');
+const LoadSimulatorComputed = require('../computed/load-simulator.js');
 
 const artifactsFilename = 'artifacts.json';
 const traceSuffix = '.trace.json';
@@ -63,6 +65,11 @@ async function loadArtifacts(basePath) {
     artifacts.traces[passName] = Array.isArray(trace) ? {traceEvents: trace} : trace;
   });
 
+  if (Array.isArray(artifacts.Timing)) {
+    // Any Timing entries in saved artifacts will have a different timeOrigin than the auditing phase
+    // The `gather` prop is read later in generate-timing-trace and they're added to a separate track of trace events
+    artifacts.Timing.forEach(entry => (entry.gather = true));
+  }
   return artifacts;
 }
 
@@ -74,6 +81,8 @@ async function loadArtifacts(basePath) {
  * @return {Promise<void>}
  */
 async function saveArtifacts(artifacts, basePath) {
+  const status = {msg: 'Saving artifacts', id: 'lh:assetSaver:saveArtifacts'};
+  log.time(status);
   mkdirp.sync(basePath);
   rimraf.sync(`${basePath}/*${traceSuffix}`);
   rimraf.sync(`${basePath}/${artifactsFilename}`);
@@ -95,6 +104,7 @@ async function saveArtifacts(artifacts, basePath) {
   const restArtifactsString = JSON.stringify(restArtifacts, null, 2);
   fs.writeFileSync(`${basePath}/${artifactsFilename}`, restArtifactsString, 'utf8');
   log.log('Artifacts saved to disk in folder:', basePath);
+  log.timeEnd(status);
 }
 
 /**
@@ -264,6 +274,19 @@ async function logAssets(artifacts, audits) {
   });
 }
 
+/**
+ * @param {LH.DevtoolsLog} devtoolsLog
+ * @param {string} outputPath
+ * @return {Promise<void>}
+ */
+async function saveLanternNetworkData(devtoolsLog, outputPath) {
+  const context = /** @type {LH.Audit.Context} */ ({computedCache: new Map()});
+  const networkAnalysis = await NetworkAnalysisComputed.request(devtoolsLog, context);
+  const lanternData = LoadSimulatorComputed.convertAnalysisToSaveableLanternData(networkAnalysis);
+
+  fs.writeFileSync(outputPath, JSON.stringify(lanternData));
+}
+
 module.exports = {
   saveArtifacts,
   loadArtifacts,
@@ -271,4 +294,5 @@ module.exports = {
   prepareAssets,
   saveTrace,
   logAssets,
+  saveLanternNetworkData,
 };

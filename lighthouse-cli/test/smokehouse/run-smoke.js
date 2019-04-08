@@ -12,89 +12,21 @@ const execAsync = promisify(require('child_process').exec);
 const {server, serverForOffline} = require('../fixtures/static-server');
 const log = require('lighthouse-logger');
 
+/** @param {string} str */
 const purpleify = str => `${log.purple}${str}${log.reset}`;
-const smokehouseDir = 'lighthouse-cli/test/smokehouse/';
-
-/**
- * @typedef {object} SmoketestDfn
- * @property {string} id
- * @property {string} expectations
- * @property {string} config
- * @property {string | undefined} batch
- */
-
-/** @type {Array<SmoketestDfn>} */
-const SMOKETESTS = [{
-  id: 'ally',
-  config: smokehouseDir + 'a11y/a11y-config.js',
-  expectations: 'a11y/expectations.js',
-  batch: 'parallel-first',
-}, {
-  id: 'pwa',
-  expectations: smokehouseDir + 'pwa-expectations.js',
-  config: smokehouseDir + 'pwa-config.js',
-  batch: 'parallel-second',
-}, {
-  id: 'pwa2',
-  expectations: smokehouseDir + 'pwa2-expectations.js',
-  config: smokehouseDir + 'pwa-config.js',
-  batch: 'parallel-second',
-}, {
-  id: 'pwa3',
-  expectations: smokehouseDir + 'pwa3-expectations.js',
-  config: smokehouseDir + 'pwa-config.js',
-  batch: 'parallel-first',
-}, {
-  id: 'dbw',
-  expectations: 'dobetterweb/dbw-expectations.js',
-  config: smokehouseDir + 'dbw-config.js',
-  batch: 'parallel-second',
-}, {
-  id: 'redirects',
-  expectations: 'redirects/expectations.js',
-  config: smokehouseDir + 'redirects-config.js',
-  batch: 'parallel-first',
-}, {
-  id: 'seo',
-  expectations: 'seo/expectations.js',
-  config: smokehouseDir + 'seo-config.js',
-  batch: 'parallel-first',
-}, {
-  id: 'offline',
-  expectations: 'offline-local/offline-expectations.js',
-  config: smokehouseDir + 'offline-config.js',
-  batch: 'offline',
-}, {
-  id: 'byte',
-  expectations: 'byte-efficiency/expectations.js',
-  config: smokehouseDir + 'byte-config.js',
-  batch: 'perf-opportunity',
-}, {
-  id: 'perf',
-  expectations: 'perf/expectations.js',
-  config: 'lighthouse-core/config/perf-config.js',
-  batch: 'perf-metric',
-}, {
-  id: 'tti',
-  expectations: 'tricky-tti/expectations.js',
-  config: 'lighthouse-core/config/perf-config.js',
-  batch: 'parallel-second',
-}];
+const SMOKETESTS = require('./smoke-test-dfns').SMOKE_TEST_DFNS;
 
 /**
  * Display smokehouse output from child process
- * @param {{id: string, process: NodeJS.Process} || {id: string, error: Error & {stdout : NodeJS.WriteStream, stderr: NodeJS.WriteStream}}} result
+ * @param {{id: string, stdout: string, stderr: string, error?: Error}} result
  */
 function displaySmokehouseOutput(result) {
   console.log(`\n${purpleify(result.id)} smoketest results:`);
   if (result.error) {
     console.log(result.error.message);
-    process.stdout.write(result.error.stdout);
-    process.stderr.write(result.error.stderr);
-  } else {
-    process.stdout.write(result.process.stdout);
-    process.stderr.write(result.process.stderr);
   }
+  process.stdout.write(result.stdout);
+  process.stderr.write(result.stderr);
   console.timeEnd(`smoketest-${result.id}`);
   console.log(`${purpleify(result.id)} smoketest complete. \n`);
   return result;
@@ -103,7 +35,7 @@ function displaySmokehouseOutput(result) {
 /**
  * Run smokehouse in child processes for selected smoketests
  * Display output from each as soon as they finish, but resolve function when ALL are complete
- * @param {Array<SmoketestDfn>} smokes
+ * @param {Array<Smokehouse.TestDfn>} smokes
  * @return {Promise<Array<{id: string, error?: Error}>>}
  */
 async function runSmokehouse(smokes) {
@@ -119,8 +51,8 @@ async function runSmokehouse(smokes) {
 
     // The promise ensures we output immediately, even if the process errors
     const p = execAsync(cmd, {timeout: 6 * 60 * 1000, encoding: 'utf8'})
-      .then(cp => ({id: id, process: cp}))
-      .catch(err => ({id: id, error: err}))
+      .then(cp => ({id, ...cp}))
+      .catch(err => ({id, stdout: err.stdout, stderr: err.stderr, error: err}))
       .then(result => displaySmokehouseOutput(result));
 
     // If the machine is terribly slow, we'll run all smoketests in succession, not parallel
@@ -136,7 +68,7 @@ async function runSmokehouse(smokes) {
 /**
  * Determine batches of smoketests to run, based on argv
  * @param {string[]} argv
- * @return {Map<string|undefined, Array<SmoketestDfn>>}
+ * @return {Map<string|undefined, Array<Smokehouse.TestDfn>>}
  */
 function getSmoketestBatches(argv) {
   let smokes = [];
@@ -195,6 +127,7 @@ async function cli() {
   if (failingTests.length && (process.env.RETRY_SMOKES || process.env.CI)) {
     console.log('Retrying failed tests...');
     for (const failedResult of failingTests) {
+      /** @type {number} */
       const resultIndex = smokeResults.indexOf(failedResult);
       const smokeDefn = smokeDefns.get(failedResult.id);
       smokeResults[resultIndex] = (await runSmokehouse([smokeDefn]))[0];

@@ -11,18 +11,25 @@ const REPORT_TEMPLATE = fs.readFileSync(__dirname + '/report-template.html', 'ut
 const REPORT_JAVASCRIPT = [
   fs.readFileSync(__dirname + '/renderer/util.js', 'utf8'),
   fs.readFileSync(__dirname + '/renderer/dom.js', 'utf8'),
+  // COMPAT: Remove when Microsoft Edge supports <details>/<summary>
+  // https://developer.microsoft.com/en-us/microsoft-edge/platform/status/detailssummary/?q=details
+  fs.readFileSync(require.resolve('details-element-polyfill'), 'utf8'),
   fs.readFileSync(__dirname + '/renderer/details-renderer.js', 'utf8'),
   fs.readFileSync(__dirname + '/renderer/crc-details-renderer.js', 'utf8'),
+  fs.readFileSync(__dirname + '/renderer/snippet-renderer.js', 'utf8'),
   fs.readFileSync(__dirname + '/../../lib/file-namer.js', 'utf8'),
   fs.readFileSync(__dirname + '/renderer/logger.js', 'utf8'),
   fs.readFileSync(__dirname + '/renderer/report-ui-features.js', 'utf8'),
   fs.readFileSync(__dirname + '/renderer/category-renderer.js', 'utf8'),
   fs.readFileSync(__dirname + '/renderer/performance-category-renderer.js', 'utf8'),
+  fs.readFileSync(__dirname + '/renderer/pwa-category-renderer.js', 'utf8'),
   fs.readFileSync(__dirname + '/renderer/report-renderer.js', 'utf8'),
 ].join(';\n');
 const REPORT_CSS = fs.readFileSync(__dirname + '/report-styles.css', 'utf8');
 const REPORT_TEMPLATES = fs.readFileSync(__dirname + '/templates.html', 'utf8');
 
+// Changes to this export interface should be reflected in build/dt-report-generator-bundle.js
+// and clients/devtools-report-assets.js
 module.exports = {
   REPORT_TEMPLATE,
   REPORT_TEMPLATES,

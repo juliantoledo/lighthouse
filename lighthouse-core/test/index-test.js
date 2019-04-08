@@ -73,7 +73,7 @@ describe('Module Tests', function() {
     return lighthouse('chrome://version', {}, {
       passes: [{
         gatherers: [
-          'viewport',
+          'script-elements',
         ],
       }],
       audits: [
@@ -128,8 +128,31 @@ describe('Module Tests', function() {
       assert.strictEqual(results.lhr.audits.viewport.score, 0);
       assert.ok(results.lhr.audits.viewport.explanation);
       assert.ok(results.lhr.timing);
-      assert.equal(typeof results.lhr.timing.total, 'number');
+      assert.ok(results.lhr.timing.entries.length > 3, 'timing entries not populated');
     });
+  });
+
+  it('should specify the channel as node by default', async function() {
+    const exampleUrl = 'https://www.reddit.com/r/nba';
+    const results = await lighthouse(exampleUrl, {}, {
+      settings: {
+        auditMode: __dirname + '/fixtures/artifacts/perflog/',
+      },
+      audits: [],
+    });
+    assert.equal(results.lhr.configSettings.channel, 'node');
+  });
+
+  it('lets consumers pass in a custom channel', async function() {
+    const exampleUrl = 'https://www.reddit.com/r/nba';
+    const results = await lighthouse(exampleUrl, {}, {
+      settings: {
+        auditMode: __dirname + '/fixtures/artifacts/perflog/',
+        channel: 'custom',
+      },
+      audits: [],
+    });
+    assert.equal(results.lhr.configSettings.channel, 'custom');
   });
 
   it('should return a list of audits', function() {

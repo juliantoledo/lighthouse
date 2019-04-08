@@ -9,16 +9,9 @@ const ImageAspectRatioAudit = require('../../audits/image-aspect-ratio.js');
 const assert = require('assert');
 
 /* eslint-env jest */
-function generateRecord(url = 'https://google.com/logo.png', mimeType = 'image/png') {
-  return {
-    url,
-    mimeType,
-  };
-}
 
-function generateImage(clientSize, naturalSize, networkRecord, props, src = 'https://google.com/logo.png') {
-  Object.assign(networkRecord || {}, {url: src});
-  const image = {src, networkRecord};
+function generateImage(clientSize, naturalSize, props, src = 'https://google.com/logo.png') {
+  const image = {src, mimeType: 'image/png'};
   Object.assign(image, clientSize, naturalSize, props);
   return image;
 }
@@ -28,11 +21,10 @@ describe('Images: aspect-ratio audit', () => {
     const description = `identifies when an image ${condition}`;
     it(description, () => {
       const result = ImageAspectRatioAudit.audit({
-        ImageUsage: [
+        ImageElements: [
           generateImage(
-            {width: data.clientSize[0], height: data.clientSize[1]},
+            {displayedWidth: data.clientSize[0], displayedHeight: data.clientSize[1]},
             {naturalWidth: data.naturalSize[0], naturalHeight: data.naturalSize[1]},
-            generateRecord(),
             data.props
           ),
         ],
@@ -46,6 +38,15 @@ describe('Images: aspect-ratio audit', () => {
       }
     });
   }
+
+  testImage('is a css image', {
+    rawValue: true,
+    clientSize: [1000, 20],
+    naturalSize: [5, 5],
+    props: {
+      isCss: true,
+    },
+  });
 
   testImage('is much larger than natural aspect ratio', {
     rawValue: false,
@@ -137,11 +138,10 @@ describe('Images: aspect-ratio audit', () => {
     },
   });
 
-  testImage('has invalid natural sizing information', {
+  testImage('is placeholder image', {
     rawValue: true,
-    warning: 'Invalid image sizing information https://google.com/logo.png',
-    clientSize: [100, 100],
-    naturalSize: [0, 0],
+    clientSize: [300, 220],
+    naturalSize: [1, 1],
     props: {
       isCss: false,
       usesObjectFit: false,
@@ -150,15 +150,12 @@ describe('Images: aspect-ratio audit', () => {
 
   it('skips svg images', () => {
     const result = ImageAspectRatioAudit.audit({
-      ImageUsage: [
+      ImageElements: [
         generateImage(
           {width: 150, height: 150},
           {},
           {
-            url: 'https://google.com/logo.png',
             mimeType: 'image/svg+xml',
-          },
-          {
             isCss: false,
             usesObjectFit: false,
           }

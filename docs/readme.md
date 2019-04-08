@@ -16,7 +16,7 @@ function launchChromeAndRunLighthouse(url, opts, config = null) {
     opts.port = chrome.port;
     return lighthouse(url, opts, config).then(results => {
       // use results.lhr for the JS-consumeable output
-      // https://github.com/GoogleChrome/lighthouse/blob/master/typings/lhr.d.ts
+      // https://github.com/GoogleChrome/lighthouse/blob/master/types/lhr.d.ts
       // use results.report for the HTML/JSON/CSV output as a string
       // use results.artifacts for the trace/screenshots/other specific case you need (rarer)
       return chrome.kill().then(() => results.lhr)
@@ -50,7 +50,7 @@ You can also craft your own config (e.g. [mixed-content-config.js](https://githu
 
 ### Differences from CLI flags
 
-Note that some flag functionality is only available to the CLI. The set of shared flags that work in both node and CLI can be found [in our typedefs](https://github.com/GoogleChrome/lighthouse/blob/8f500e00243e07ef0a80b39334bedcc8ddc8d3d0/typings/externs.d.ts#L68). In most cases, the functionality is not offered in the node module simply because it is easier and more flexible to do it yourself.
+Note that some flag functionality is only available to the CLI. The set of shared flags that work in both node and CLI can be found [in our typedefs](https://github.com/GoogleChrome/lighthouse/blob/888bd6dc9d927a734a8e20ea8a0248baa5b425ed/typings/externs.d.ts#L82-L119). In most cases, the functionality is not offered in the node module simply because it is easier and more flexible to do it yourself.
 
 | CLI Flag | Differences in Node |
 | - | - |
@@ -81,6 +81,29 @@ log.setLevel(flags.logLevel);
 
 launchChromeAndRunLighthouse('https://example.com', flags).then(...);
 ```
+
+## Configuration
+In order to extend the Lighthouse configuration programmatically, you need to pass the config object as the 3rd argument. If omitted, a default configuration is used.
+
+**Example:**
+```js
+{
+  extends: 'lighthouse:default',
+  settings: {
+    onlyAudits: [
+      'first-meaningful-paint',
+      'speed-index-metric',
+      'estimated-input-latency',
+      'first-interactive',
+      'consistently-interactive',
+    ],
+  },
+}
+```
+
+You can extend base configuration from either [lighthouse:default](https://github.com/GoogleChrome/lighthouse/blob/master/lighthouse-core/config/default-config.js) or [lighthouse:full](https://github.com/GoogleChrome/lighthouse/blob/master/lighthouse-core/config/full-config.js). Alternatively, you can build up your own configuration from scratch to have complete control.
+
+For more information on the types of config you can provide, see [Lighthouse Configuration](https://github.com/GoogleChrome/lighthouse/blob/master/docs/configuration.md).
 
 ## Testing on a site with authentication
 

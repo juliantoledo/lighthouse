@@ -19,8 +19,6 @@
 /* globals self, Util, CategoryRenderer */
 
 /** @typedef {import('./dom.js')} DOM */
-/** @typedef {import('./details-renderer.js').FilmstripDetails} FilmstripDetails */
-/** @typedef {LH.Result.Audit.OpportunityDetails} OpportunityDetails */
 
 class PerformanceCategoryRenderer extends CategoryRenderer {
   /**
@@ -38,7 +36,7 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
     titleEl.textContent = audit.result.title;
 
     const valueEl = this.dom.find('.lh-metric__value', tmpl);
-    valueEl.textContent = Util.formatDisplayValue(audit.result.displayValue);
+    valueEl.textContent = audit.result.displayValue || '';
 
     const descriptionEl = this.dom.find('.lh-metric__description', tmpl);
     descriptionEl.appendChild(this.dom.convertMarkdownLinkSnippets(audit.result.description));
@@ -67,8 +65,7 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
     if (!audit.result.details || audit.result.scoreDisplayMode === 'error') {
       return element;
     }
-    // TODO(bckenny): remove cast when details is fully discriminated based on `type`.
-    const details = /** @type {OpportunityDetails} */ (audit.result.details);
+    const details = audit.result.details;
     if (details.type !== 'opportunity') {
       return element;
     }
@@ -81,7 +78,7 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
 
     // Set [title] tooltips
     if (audit.result.displayValue) {
-      const displayValue = Util.formatDisplayValue(audit.result.displayValue);
+      const displayValue = audit.result.displayValue;
       this.dom.find('.lh-load-opportunity__sparkline', element).title = displayValue;
       displayEl.title = displayValue;
     }
@@ -91,15 +88,14 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
 
   /**
    * Get an audit's wastedMs to sort the opportunity by, and scale the sparkline width
-   * Opportunties with an error won't have a details object, so MIN_VALUE is returned to keep any
+   * Opportunities with an error won't have a details object, so MIN_VALUE is returned to keep any
    * erroring opportunities last in sort order.
    * @param {LH.ReportResult.AuditRef} audit
    * @return {number}
    */
   _getWastedMs(audit) {
     if (audit.result.details && audit.result.details.type === 'opportunity') {
-      // TODO(bckenny): remove cast when details is fully discriminated based on `type`.
-      const details = /** @type {OpportunityDetails} */ (audit.result.details);
+      const details = audit.result.details;
       if (typeof details.overallSavingsMs !== 'number') {
         throw new Error('non-opportunity details passed to _getWastedMs');
       }
@@ -120,16 +116,16 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
     const element = this.dom.createElement('div', 'lh-category');
     if (environment === 'PSI') {
       const gaugeEl = this.dom.createElement('div', 'lh-score__gauge');
-      gaugeEl.appendChild(this.renderScoreGauge(category));
+      gaugeEl.appendChild(this.renderScoreGauge(category, groups));
       element.appendChild(gaugeEl);
     } else {
       this.createPermalinkSpan(element, category.id);
-      element.appendChild(this.renderCategoryHeader(category));
+      element.appendChild(this.renderCategoryHeader(category, groups));
     }
 
     // Metrics
     const metricAudits = category.auditRefs.filter(audit => audit.group === 'metrics');
-    const metricAuditsEl = this.renderAuditGroup(groups.metrics, {expandable: false});
+    const metricAuditsEl = this.renderAuditGroup(groups.metrics);
 
     const keyMetrics = metricAudits.filter(a => a.weight >= 3);
     const otherMetrics = metricAudits.filter(a => a.weight < 3);
@@ -162,7 +158,7 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
     if (thumbnailResult && thumbnailResult.details) {
       timelineEl.id = thumbnailResult.id;
       const filmstripEl = this.detailsRenderer.render(thumbnailResult.details);
-      timelineEl.appendChild(filmstripEl);
+      filmstripEl && timelineEl.appendChild(filmstripEl);
     }
 
     // Opportunities
@@ -176,7 +172,7 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
       const wastedMsValues = opportunityAudits.map(audit => this._getWastedMs(audit));
       const maxWaste = Math.max(...wastedMsValues);
       const scale = Math.max(Math.ceil(maxWaste / 1000) * 1000, minimumScale);
-      const groupEl = this.renderAuditGroup(groups['load-opportunities'], {expandable: false});
+      const groupEl = this.renderAuditGroup(groups['load-opportunities']);
       const tmpl = this.dom.cloneTemplate('#tmpl-lh-opportunity-header', this.templateContext);
 
       this.dom.find('.lh-load-opportunity__col--one', tmpl).textContent =
@@ -188,7 +184,7 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
       groupEl.appendChild(headerEl);
       opportunityAudits.forEach((item, i) =>
           groupEl.appendChild(this._renderOpportunity(item, i, scale)));
-      groupEl.classList.add('lh-audit-group--opportunities');
+      groupEl.classList.add('lh-audit-group--load-opportunities');
       element.appendChild(groupEl);
     }
 
@@ -202,21 +198,24 @@ class PerformanceCategoryRenderer extends CategoryRenderer {
         });
 
     if (diagnosticAudits.length) {
-      const groupEl = this.renderAuditGroup(groups['diagnostics'], {expandable: false});
+      const groupEl = this.renderAuditGroup(groups['diagnostics']);
       diagnosticAudits.forEach((item, i) => groupEl.appendChild(this.renderAudit(item, i)));
       groupEl.classList.add('lh-audit-group--diagnostics');
       element.appendChild(groupEl);
     }
 
     // Passed audits
-    const passedElements = category.auditRefs
+    const passedAudits = category.auditRefs
         .filter(audit => (audit.group === 'load-opportunities' || audit.group === 'diagnostics') &&
-            Util.showAsPassed(audit.result))
-        .map((audit, i) => this.renderAudit(audit, i));
+            Util.showAsPassed(audit.result));
 
-    if (!passedElements.length) return element;
+    if (!passedAudits.length) return element;
 
-    const passedElem = this.renderPassedAuditsSection(passedElements);
+    const clumpOpts = {
+      auditRefs: passedAudits,
+      groupDefinitions: groups,
+    };
+    const passedElem = this.renderClump('passed', clumpOpts);
     element.appendChild(passedElem);
     return element;
   }

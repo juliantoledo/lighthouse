@@ -1,4 +1,4 @@
-# Lighthouse  [![Linux Build Status](https://img.shields.io/travis/GoogleChrome/lighthouse/master.svg)](https://travis-ci.org/GoogleChrome/lighthouse) [![Windows Build Status](https://img.shields.io/appveyor/ci/paulirish/lighthouse/master.svg)](https://ci.appveyor.com/project/paulirish/lighthouse/branch/master) [![Coverage Status](https://img.shields.io/coveralls/GoogleChrome/lighthouse/master.svg)](https://coveralls.io/github/GoogleChrome/lighthouse?branch=master) [![NPM lighthouse package](https://img.shields.io/npm/v/lighthouse.svg)](https://npmjs.org/package/lighthouse)
+# Lighthouse  [![Linux Build Status](https://img.shields.io/travis/GoogleChrome/lighthouse/master.svg)](https://travis-ci.org/GoogleChrome/lighthouse) [![Windows Build Status](https://ci.appveyor.com/api/projects/status/46a5yoqc3hk59bl5/branch/master?svg=true)](https://ci.appveyor.com/project/paulirish/lighthouse/branch/master) [![Coverage Status](https://img.shields.io/coveralls/GoogleChrome/lighthouse/master.svg)](https://coveralls.io/github/GoogleChrome/lighthouse?branch=master) [![NPM lighthouse package](https://img.shields.io/npm/v/lighthouse.svg)](https://npmjs.org/package/lighthouse)
 
 > Lighthouse analyzes web apps and web pages, collecting modern performance metrics and insights on developer best practices.
 
@@ -14,11 +14,15 @@ Lighthouse is integrated directly into the Chrome Developer Tools, under the "Au
 
 ## Using the Chrome extension
 
+The Chrome extension was available prior to Lighthouse being available in Chrome Developer Tools, and offers similar functionality.
+
 **Installation**: [install the extension](https://chrome.google.com/webstore/detail/lighthouse/blipmdconlkpinefehnmjammfjpmpbjk) from the Chrome Web Store.
 
 **Run it**: follow the [extension quick-start guide](https://developers.google.com/web/tools/lighthouse/#extension).
 
 ## Using the Node CLI
+
+The Node CLI provides the most flexibility in how Lighthouse runs can be configured and reported. Users who want more advanced usage, or want to run Lighthouse in an automated fashion should use the Node CLI.
 
 _Lighthouse requires Node 8 LTS (8.9) or later._
 
@@ -36,7 +40,7 @@ By default, Lighthouse writes the report to an HTML file. You can control the ou
 
 ### CLI options
 
-```sh
+```
 $ lighthouse --help
 
 lighthouse <url>
@@ -52,6 +56,7 @@ Configuration:
   --print-config                 Print the normalized config for the given config and options, then exit.                                  [boolean]
   --additional-trace-categories  Additional categories to capture with the trace (comma-delimited).
   --config-path                  The path to the config JSON.
+                                 An example config file: lighthouse-core/config/lr-desktop-config.js
   --chrome-flags                 Custom flags to pass to Chrome (space-delimited). For a full list of flags, see
                                  http://peter.sh/experiments/chromium-command-line-switches/.
 
@@ -61,6 +66,7 @@ Configuration:
                                                                                                                                        [default: ""]
   --port                         The port to use for the debugging protocol. Use 0 for a random port                                    [default: 0]
   --preset                       Use a built-in configuration.                                            [choices: "full", "perf", "mixed-content"]
+                                 WARNING: If the --config-path flag is provided, this preset will be ignored.
   --hostname                     The hostname to use for the debugging protocol.                                              [default: "localhost"]
   --max-wait-for-load            The timeout (in milliseconds) to wait before the page is considered done loading and the run should continue.
                                  WARNING: Very high values can lead to large traces and instability                                 [default: 45000]
@@ -76,7 +82,7 @@ Output:
   --output-path  The file path to output the results. Use 'stdout' to write to stdout.
                  If using JSON or CSV output, default is stdout.
                  If using HTML output, default is a file in the working directory with a name based on the test URL and date.
-                 If using multiple outputs, --output-path is ignored.
+                 If using multiple outputs, --output-path is appended with the standard extension for each output type. "reports/my-run" -> "reports/my-run.report.html", "reports/my-run.report.json", etc.
                  Example: --output-path=./lighthouse-results.html
   --view         Open HTML report in your browser                                                                                          [boolean]
 
@@ -102,7 +108,7 @@ Examples:
   lighthouse <url> --output=json --output-path=./report.json --save-assets  Save trace, devtoolslog, and named JSON report.
   lighthouse <url> --disable-device-emulation                               Disable device emulation and all throttling.
     --throttling-method=provided
-  lighthouse <url> --chrome-flags="--window-size=412,732"                   Launch Chrome with a specific window size
+  lighthouse <url> --chrome-flags="--window-size=412,660"                   Launch Chrome with a specific window size
   lighthouse <url> --quiet --chrome-flags="--headless"                      Launch Headless Chrome, turn off logging
   lighthouse <url> --extra-headers "{\"Cookie\":\"monster=blue\"}"          Stringify\'d JSON HTTP Header key/value pairs to send in requests
   lighthouse <url> --extra-headers=./path/to/file.json                      Path to JSON file of HTTP Header key/value pairs to send in requests
@@ -160,6 +166,12 @@ lighthouse -GA=./gmailartifacts https://gmail.com
 
 The first time you run the CLI you will be prompted with a message asking you if Lighthouse can anonymously report runtime exceptions. The Lighthouse team uses this information to detect new bugs and avoid regressions. Opting out will not affect your ability to use Lighthouse in any way. [Learn more](https://github.com/GoogleChrome/lighthouse/blob/master/docs/error-reporting.md).
 
+## Using the Node module
+You can also use Lighthouse programmatically with the Node module.
+
+Read [Using Lighthouse programmatically](./docs/readme.md#using-programmatically) for help getting started.\
+Read [Lighthouse Configuration](./docs/configuration.md) to learn more about the configuration options available.
+
 ## Viewing a report
 
 Lighthouse can produce a report as JSON or HTML.
@@ -170,7 +182,7 @@ HTML report:
 
 ### Online Viewer
 
-Running Lighthouse with the `--output=json` flag generates a json dump of the run.
+Running Lighthouse with the `--output=json` flag generates a JSON dump of the run.
 You can view this report online by visiting <https://googlechrome.github.io/lighthouse/viewer/>
 and dragging the file onto the app. You can also use the "Export" button from the
 top of any Lighthouse HTML report and open the report in the
@@ -187,6 +199,7 @@ Useful documentation, examples, and recipes to get you started.
 
 **Docs**
 
+- [Dealing with variance](./docs/variability.md)
 - [Using Lighthouse programmatically](./docs/readme.md#using-programmatically)
 - [Testing a site with authentication](./docs/readme.md#testing-on-a-site-with-authentication)
 - [Testing on a mobile device](./docs/readme.md#testing-on-a-mobile-device)
@@ -212,7 +225,7 @@ _click to watch the video_
 
 ## Develop
 
-Read on for the basics of hacking on Lighthouse. Also see [Contributing](./CONTRIBUTING.md)
+Read on for the basics of hacking on Lighthouse. Also, see [Contributing](./CONTRIBUTING.md)
 for detailed information.
 
 ### Setup
@@ -224,7 +237,6 @@ git clone https://github.com/GoogleChrome/lighthouse
 
 cd lighthouse
 yarn
-yarn install-all
 yarn build-all
 ```
 
@@ -264,9 +276,17 @@ This section details services that have integrated Lighthouse data. If you're wo
 
 * **[Calibre](https://calibreapp.com)** - Calibre is a web performance monitoring tool running Lighthouse continuously or on-demand via an API. Test using emulated devices and connection speeds from a number of geographical locations. Set budgets and improve performance with actionable guidelines. Calibre comes with a free 14-day trial.
 
+* **[DebugBear](https://www.debugbear.com/)** - DebugBear is a website monitoring tool based on Lighthouse. See how your scores and metrics changed over time, with a focus on understanding what caused each change. DebugBear is a paid product with a free 30-day trial.
+
+* **[Fluxguard](https://fluxguard.com/)** - Fluxguard provides website DOM change monitoring orchestrated with Google Puppeteer, and audited by Lighthouse. Fluxguard is a freemium product, with monthly monitoring of up to 75 pages for free.
+
 * **[HTTPArchive](http://httparchive.org/)** - HTTPArchive tracks how the web is built by crawling 500k pages with Web Page Test, including Lighthouse results, and stores the information in BigQuery where it is [publicly available](https://discuss.httparchive.org/t/quickstart-guide-to-exploring-the-http-archive/682).
 
+* **[Lighthouse Keeper](https://lighthouse-keeper.com/)** - Lighthouse Keeper monitors your pages' Lighthouse scores and notifies you if they drop below your thresholds. Lighthouse Keeper is a free service that monitors up to 3 URLs once per day.
+
 * **[SpeedCurve](https://speedcurve.com)** — SpeedCurve is a tool for continuously monitoring web performance across different browsers, devices, and regions. It can aggregate any metric including Lighthouse scores across multiple pages and sites, and allows you to set performance budgets with Slack or email alerts. SpeedCurve is a paid product with a free 30-day trial.
+
+* **[Speedrank](https://speedrank.app)** - Speedrank monitors the performance of your website in the background. It displays Lighthouse reports over time and delivers recommendations for improvement. Speedrank is a paid product with 14-day-trial.
 
 * **[Treo](https://treo.sh)** - Treo is Lighthouse as a Service. It provides regression testing, geographical regions, custom networks, and integrations with GitHub & Slack. Treo is a paid product with plans for solo-developers and teams.
 
@@ -290,6 +310,8 @@ Other awesome open source projects that use Lighthouse.
 * **[Garie](https://github.com/boyney123/garie)** — An open source tool for monitoring performance using Lighthouse,  PageSpeed Insights, [Prometheus](https://prometheus.io/), [Grafana](https://grafana.com/) and [Docker](https://www.docker.com/).
 * **[lighthouse-ci](https://github.com/andreasonny83/lighthouse-ci)** - Run Lighthouse and assert scores satisfy your custom thresholds.
 * **[lighthouse4u](https://github.com/godaddy/lighthouse4u)** - LH4U provides Google Lighthouse as a service, surfaced by both a friendly UI+API, and backed by Elastic Search for easy querying and visualization.
+* **[lighthouse-gh-reporter](https://github.com/carlesnunez/lighthouse-gh-reporter)** - Run Lighthouse in CI and report back in a comment on your pull requests
+* **[react-lighthouse-viewer](https://www.npmjs.com/package/react-lighthouse-viewer)** - Render a Lighthouse JSON report in a React Component.
 
 ## FAQ
 
@@ -304,7 +326,7 @@ Yes! Details in [Lighthouse configuration](./docs/configuration.md).
 ### How does Lighthouse use network throttling, and how can I make it better?
 
 Good question. Network and CPU throttling are applied by default in a Lighthouse run. The network
-attempts to emulate slow 4G and the CPU is slowed down 4x from your machine's default speed. If you
+attempts to emulate slow 4G connectivity and the CPU is slowed down 4x from your machine's default speed. If you
 prefer to run Lighthouse without throttling, you'll have to use the CLI and disable it with the
 `--throttling.*` flags mentioned above.
 

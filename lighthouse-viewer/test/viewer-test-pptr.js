@@ -5,7 +5,7 @@
  */
 'use strict';
 
-/* eslint-env mocha */
+/* eslint-env jest */
 
 const path = require('path');
 const assert = require('assert');
@@ -13,14 +13,14 @@ const puppeteer = require('../../node_modules/puppeteer/index.js');
 
 const {server} = require('../../lighthouse-cli/test/fixtures/static-server.js');
 const portNumber = 10200;
-const viewerUrl = `http://localhost:${portNumber}/lighthouse-viewer/dist/index.html`;
+const viewerUrl = `http://localhost:${portNumber}/dist/viewer/index.html`;
 const sampleLhr = __dirname + '/../../lighthouse-core/test/results/sample_v2.json';
 
 const config = require(path.resolve(__dirname, '../../lighthouse-core/config/default-config.js'));
 const lighthouseCategories = Object.keys(config.categories);
 const getAuditsOfCategory = category => config.categories[category].auditRefs;
 
-// TODO: should be combined in some way with lighthouse-extension/test/extension-test.js
+// TODO: should be combined in some way with clients/test/extension/extension-test.js
 describe('Lighthouse Viewer', function() {
   // eslint-disable-next-line no-console
   console.log('\n✨ Be sure to have recently run this: yarn build-viewer');
@@ -49,7 +49,7 @@ describe('Lighthouse Viewer', function() {
       });
   }
 
-  before(async function() {
+  beforeAll(async function() {
     server.listen(portNumber, 'localhost');
 
     // start puppeteer
@@ -65,7 +65,7 @@ describe('Lighthouse Viewer', function() {
     await viewerPage.waitForSelector('.lh-container', {timeout: 30000});
   });
 
-  after(async function() {
+  afterAll(async function() {
     // Log any page load errors encountered in case before() failed.
     // eslint-disable-next-line no-console
     console.error(pageErrors);
@@ -134,7 +134,8 @@ describe('Lighthouse Viewer', function() {
     const auditErrors = await viewerPage.$$eval(errorSelectors, getErrors, selectors);
     const errors = auditErrors.filter(item => item.explanation.includes('Audit error:'));
     const unexpectedErrrors = errors.filter(item => {
-      return !item.explanation.includes('Required RobotsTxt gatherer did not run');
+      return !item.explanation.includes('Required RobotsTxt gatherer did not run') &&
+        !item.explanation.includes('Required TapTargets gatherer did not run');
     });
     assert.deepStrictEqual(unexpectedErrrors, [], 'Audit errors found within the report');
   });

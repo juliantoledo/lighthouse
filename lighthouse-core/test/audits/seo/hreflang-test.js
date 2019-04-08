@@ -5,160 +5,86 @@
  */
 'use strict';
 
-const HreflangAudit = require('../../../audits/seo/hreflang.js');
 const assert = require('assert');
+const HreflangAudit = require('../../../audits/seo/hreflang.js');
 
 /* eslint-env jest */
 
 describe('SEO: Document has valid hreflang code', () => {
   it('fails when language code provided in hreflang via link element is invalid', () => {
-    const hreflangValues = [
-      'xx',
-      'XX-be',
-      'XX-be-Hans',
-      '',
-      '  es',
-    ];
-
-    const allRuns = hreflangValues.map(hreflangValue => {
-      const mainResource = {
-        responseHeaders: [],
-      };
-      const artifacts = {
-        devtoolsLogs: {[HreflangAudit.DEFAULT_PASS]: []},
-        requestMainResource: () => Promise.resolve(mainResource),
-        Hreflang: [{
-          hreflang: hreflangValue,
-          href: 'https://example.com',
-        }],
-      };
-
-      return HreflangAudit.audit(artifacts).then(auditResult => {
-        assert.equal(auditResult.rawValue, false);
-        assert.equal(auditResult.details.items.length, 1);
-      });
-    });
-
-    return Promise.all(allRuns);
-  });
-
-  it('succeeds when language code provided via link element is valid', () => {
-    const mainResource = {
-      responseHeaders: [],
-    };
     const artifacts = {
-      devtoolsLogs: {[HreflangAudit.DEFAULT_PASS]: []},
-      requestMainResource: () => Promise.resolve(mainResource),
-      Hreflang: [
-        {hreflang: 'pl'},
-        {hreflang: 'nl-be'},
-        {hreflang: 'zh-Hans'},
-        {hreflang: 'x-default'},
-        {hreflang: 'FR-BE'},
+      LinkElements: [
+        {rel: 'alternate', hreflang: 'xx1', href: 'http://example.com/', source: 'headers'},
+        {rel: 'alternate', hreflang: 'XX-be', href: 'http://example.com/', source: 'headers'},
+        {rel: 'alternate', hreflang: 'XX-be-Hans', href: 'http://example.com/', source: 'head'},
+        {rel: 'alternate', hreflang: '  es', href: 'http://example.com/', source: 'head'},
+        {rel: 'alternate', hreflang: '  es', href: 'http://example.com/', source: 'headers'},
       ],
     };
 
-    return HreflangAudit.audit(artifacts).then(auditResult => {
+    const auditResult = HreflangAudit.audit(artifacts);
+    assert.equal(auditResult.rawValue, false);
+    assert.equal(auditResult.details.items.length, 5);
+  });
+
+  it('succeeds when language code provided in hreflang via body is invalid', () => {
+    const hreflangValues = ['xx', 'XX-be', 'XX-be-Hans', '', '  es'];
+
+    for (const hreflangValue of hreflangValues) {
+      const artifacts = {
+        LinkElements: [
+          {
+            source: 'body',
+            rel: 'alternate',
+            hreflang: hreflangValue,
+            href: 'https://example.com',
+          },
+        ],
+      };
+
+      const auditResult = HreflangAudit.audit(artifacts);
       assert.equal(auditResult.rawValue, true);
-    });
+    }
+  });
+
+  it('succeeds when language code provided via head/headers is valid', () => {
+    const hreflangValues = ['pl', 'nl-be', 'zh-Hans', 'x-default', 'FR-BE'];
+
+    let inHead = false;
+    for (const hreflangValue of hreflangValues) {
+      const artifacts = {
+        LinkElements: [
+          {
+            source: inHead ? 'head' : 'headers',
+            rel: 'alternate',
+            hreflang: hreflangValue,
+            href: 'https://example.com',
+          },
+        ],
+      };
+
+      const auditResult = HreflangAudit.audit(artifacts);
+      assert.equal(auditResult.rawValue, true);
+      inHead = !inHead;
+    }
   });
 
   it('succeeds when there are no rel=alternate link elements nor headers', () => {
-    const mainResource = {
-      responseHeaders: [],
-    };
-    const artifacts = {
-      devtoolsLogs: {[HreflangAudit.DEFAULT_PASS]: []},
-      requestMainResource: () => Promise.resolve(mainResource),
-      Hreflang: [],
-    };
-
-    return HreflangAudit.audit(artifacts).then(auditResult => {
-      assert.equal(auditResult.rawValue, true);
-    });
-  });
-
-  it('fails when language code provided in hreflang via header is invalid', () => {
-    const linkHeaders = [
-      [
-        {name: 'Link', value: '<http://es.example.com/>; rel="alternate"; hreflang="xx"'},
-      ],
-      [
-        {name: 'link', value: '<http://es.example.com/>; rel="alternate"; hreflang=""'},
-      ],
-      [
-        {name: 'LINK', value: '<http://es.example.com/>; rel="alternate"'},
-      ],
-      [
-        {name: 'Link', value: '<http://es.example.com/>; rel="alternate"; hreflang="es",<http://xx.example.com/>; rel="alternate"; Hreflang="xx"'},
-      ],
-      [
-        {name: 'link', value: '<http://es.example.com/>; rel="alternate"; hreflang="es"'},
-        {name: 'Link', value: '<http://xx.example.com/>; rel="alternate"; hreflang="x"'},
-      ],
-    ];
-
-    const allRuns = linkHeaders.map(headers => {
-      const mainResource = {
-        responseHeaders: headers,
-      };
-      const artifacts = {
-        devtoolsLogs: {[HreflangAudit.DEFAULT_PASS]: []},
-        requestMainResource: () => Promise.resolve(mainResource),
-        Hreflang: null,
-      };
-
-      return HreflangAudit.audit(artifacts).then(auditResult => {
-        assert.equal(auditResult.rawValue, false);
-        assert.equal(auditResult.details.items.length, 1);
-      });
-    });
-
-    return Promise.all(allRuns);
-  });
-
-  it('succeeds when language codes provided via Link header are valid', () => {
-    const mainResource = {
-      responseHeaders: [
-        {name: 'link', value: ''},
-        {name: 'link', value: 'garbage'},
-        {name: 'link', value: '<http://es.example.com/>; rel="example"; hreflang="xx"'},
-        {name: 'link', value: '<http://es.example.com/>; rel="alternate"; hreflang="es"'},
-        {name: 'Link', value: '<http://fr.example.com/>; rel="alternate"; hreflang="fr-be"'},
-        {name: 'LINK', value: '<http://es.example.com/>; rel="alternate"; hreflang="es",<http://fr.example.com/>; rel="alternate"; Hreflang="fr-be"'},
-      ],
-    };
-    const artifacts = {
-      devtoolsLogs: {[HreflangAudit.DEFAULT_PASS]: []},
-      requestMainResource: () => Promise.resolve(mainResource),
-      Hreflang: null,
-    };
-
-    return HreflangAudit.audit(artifacts).then(auditResult => {
-      assert.equal(auditResult.rawValue, true);
-    });
+    assert.equal(HreflangAudit.audit({LinkElements: []}).rawValue, true);
   });
 
   it('returns all failing items', () => {
-    const mainResource = {
-      responseHeaders: [
-        {name: 'link', value: '<http://xx1.example.com/>; rel="alternate"; hreflang="xx1"'},
-        {name: 'Link', value: '<http://xx2.example.com/>; rel="alternate"; hreflang="xx2"'},
+    const artifacts = {
+      LinkElements: [
+        {rel: 'alternate', hreflang: 'xx1', href: 'http://xx1.example.com/', source: 'headers'},
+        {rel: 'alternate', hreflang: 'xx2', href: 'http://xx2.example.com/', source: 'headers'},
+        {rel: 'alternate', hreflang: 'xx3', href: 'http://xx3.example.com/', source: 'head'},
+        {rel: 'alternate', hreflang: 'xx4', href: 'http://xx4.example.com/', source: 'head'},
       ],
     };
-    const artifacts = {
-      devtoolsLogs: {[HreflangAudit.DEFAULT_PASS]: []},
-      requestMainResource: () => Promise.resolve(mainResource),
-      Hreflang: [{
-        hreflang: 'xx3',
-      }, {
-        hreflang: 'xx4',
-      }],
-    };
 
-    return HreflangAudit.audit(artifacts).then(auditResult => {
-      assert.equal(auditResult.rawValue, false);
-      assert.equal(auditResult.details.items.length, 4);
-    });
+    const auditResult = HreflangAudit.audit(artifacts);
+    assert.equal(auditResult.rawValue, false);
+    assert.equal(auditResult.details.items.length, 4);
   });
 });

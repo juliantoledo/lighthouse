@@ -51,7 +51,6 @@ const RESOURCE_TYPES = {
 module.exports = class NetworkRequest {
   constructor() {
     this.requestId = '';
-    // TODO(phulce): remove default DevTools connectionId
     this.connectionId = '0';
     this.connectionReused = false;
 
@@ -68,6 +67,7 @@ module.exports = class NetworkRequest {
     /** @type {number} */
     this.responseReceivedTime = -1;
 
+    // Go read the comment on _updateTransferSizeForLightrider.
     this.transferSize = 0;
     this.resourceSize = 0;
     this.fromDiskCache = false;
@@ -103,6 +103,18 @@ module.exports = class NetworkRequest {
     this.fetchedViaServiceWorker = false;
     /** @type {string|undefined} */
     this.frameId = '';
+    /**
+     * @type {string|undefined}
+     * Only set for OOPIFs. This is the targetId of the protocol target from which this
+     * request came. Undefined means it came from the root.
+     */
+    this.targetId = undefined;
+    /**
+     * @type {string|undefined}
+     * Only set for OOPIFs. This is the sessionId of the protocol connection on which this
+     * request was discovered. Undefined means it came from the root.
+     */
+    this.sessionId = undefined;
     this.isLinkPreload = false;
   }
 
@@ -192,7 +204,7 @@ module.exports = class NetworkRequest {
     }
 
     this._updateResponseReceivedTimeIfNecessary();
-    this._updateTransferSizeForLightRiderIfNecessary();
+    this._updateTransferSizeForLightrider();
   }
 
   /**
@@ -210,6 +222,7 @@ module.exports = class NetworkRequest {
     this.localizedFailDescription = data.errorText;
 
     this._updateResponseReceivedTimeIfNecessary();
+    this._updateTransferSizeForLightrider();
   }
 
   /**
@@ -230,6 +243,19 @@ module.exports = class NetworkRequest {
     this.endTime = data.timestamp;
 
     this._updateResponseReceivedTimeIfNecessary();
+  }
+
+  /**
+   * @param {LH.Protocol.RawSource|undefined} source
+   */
+  setSource(source) {
+    if (source) {
+      this.targetId = source.targetId;
+      this.sessionId = source.sessionId;
+    } else {
+      this.targetId = undefined;
+      this.sessionId = undefined;
+    }
   }
 
   /**
@@ -262,8 +288,6 @@ module.exports = class NetworkRequest {
 
     if (this.fromMemoryCache) this.timing = undefined;
     if (this.timing) this._recomputeTimesWithResourceTiming(this.timing);
-
-    this._updateTransferSizeForLightRiderIfNecessary();
   }
 
   /**
@@ -272,6 +296,9 @@ module.exports = class NetworkRequest {
    * @param {LH.Crdp.Network.ResourceTiming} timing
    */
   _recomputeTimesWithResourceTiming(timing) {
+    // Don't recompute times if the data is invalid. RequestTime should always be a thread timestamp.
+    // If we don't have receiveHeadersEnd, we really don't have more accurate data.
+    if (timing.requestTime === 0 || timing.receiveHeadersEnd === -1) return;
     // Take startTime and responseReceivedTime from timing data for better accuracy.
     // Timing's requestTime is a baseline in seconds, rest of the numbers there are ticks in millis.
     this.startTime = timing.requestTime;
@@ -295,12 +322,24 @@ module.exports = class NetworkRequest {
 
   /**
    * LR loses transfer size information, but passes it in the 'X-TotalFetchedSize' header.
+   * 'X-TotalFetchedSize' is the canonical transfer size in LR. Nothing should supersede it.
+   *
+   * The total length of the encoded data is spread out among multiple events. The sum of the
+   * values in onResponseReceived and all the onDataReceived events typically equals the value
+   * seen on the onLoadingFinished event. In <1% of cases we see the values differ. As we process
+   * onResponseReceived and onDataReceived we accumulate the total encodedDataLength. When we
+   * process onLoadingFinished, we override the accumulated total. We do this so that if the
+   * request is aborted or fails, we still get a value via the accumulation.
+   *
+   * In Lightrider, due to instrumentation limitations, our values for encodedDataLength are bogus
+   * and not valid. However the resource's true encodedDataLength/transferSize is shared via a
+   * special response header, X-TotalFetchedSize. In this situation, we read this value from
+   * responseReceived, use it for the transferSize and ignore the encodedDataLength values in
+   * both dataReceived and loadingFinished.
    */
-  _updateTransferSizeForLightRiderIfNecessary() {
-    // Bail if we're not in LightRider, this only applies there.
-    if (!global.isLightRider) return;
+  _updateTransferSizeForLightrider() {
     // Bail if we somehow already have transfer size data.
-    if (this.transferSize) return;
+    if (!global.isLightrider) return;
 
     const totalFetchedSize = this.responseHeaders.find(item => item.name === 'X-TotalFetchedSize');
     // Bail if the header was missing.

@@ -18,6 +18,8 @@
 
 /* globals URL self */
 
+/** @typedef {HTMLElementTagNameMap & {[id: string]: HTMLElement}} HTMLElementByTagName */
+
 class DOM {
   /**
    * @param {Document} document
@@ -25,16 +27,18 @@ class DOM {
   constructor(document) {
     /** @type {Document} */
     this._document = document;
+    /** @type {string} */
+    this._lighthouseChannel = 'unknown';
   }
 
-  // TODO(bckenny): can pass along `createElement`'s inferred type
   /**
-   * @param {string} name
+   * @template {string} T
+   * @param {T} name
    * @param {string=} className
    * @param {Object<string, (string|undefined)>=} attrs Attribute key/val pairs.
    *     Note: if an attribute key has an undefined value, this method does not
    *     set the attribute on the node.
-   * @return {Element}
+   * @return {HTMLElementByTagName[T]}
    */
   createElement(name, className, attrs = {}) {
     const element = this._document.createElement(name);
@@ -58,13 +62,14 @@ class DOM {
   }
 
   /**
+   * @template {string} T
    * @param {Element} parentElem
-   * @param {string} elementName
+   * @param {T} elementName
    * @param {string=} className
    * @param {Object<string, (string|undefined)>=} attrs Attribute key/val pairs.
    *     Note: if an attribute key has an undefined value, this method does not
    *     set the attribute on the node.
-   * @return {Element}
+   * @return {HTMLElementByTagName[T]}
    */
   createChildOf(parentElem, elementName, className, attrs) {
     const element = this.createElement(elementName, className, attrs);
@@ -122,11 +127,19 @@ class DOM {
 
       // Append link if there are any.
       if (linkText && linkHref) {
-        const a = /** @type {HTMLAnchorElement} */ (this.createElement('a'));
+        const url = new URL(linkHref);
+
+        const DEVELOPERS_GOOGLE_ORIGIN = 'https://developers.google.com';
+        if (url.origin === DEVELOPERS_GOOGLE_ORIGIN) {
+          url.searchParams.set('utm_source', 'lighthouse');
+          url.searchParams.set('utm_medium', this._lighthouseChannel);
+        }
+
+        const a = this.createElement('a');
         a.rel = 'noopener';
         a.target = '_blank';
         a.textContent = linkText;
-        a.href = (new URL(linkHref)).href;
+        a.href = url.href;
         element.appendChild(a);
       }
     }
@@ -147,13 +160,21 @@ class DOM {
       const [preambleText, codeText] = parts.splice(0, 2);
       element.appendChild(this._document.createTextNode(preambleText));
       if (codeText) {
-        const pre = /** @type {HTMLPreElement} */ (this.createElement('code'));
+        const pre = this.createElement('code');
         pre.textContent = codeText;
         element.appendChild(pre);
       }
     }
 
     return element;
+  }
+
+  /**
+   * The channel to use for UTM data when rendering links to the documentation.
+   * @param {string} lighthouseChannel
+   */
+  setLighthouseChannel(lighthouseChannel) {
+    this._lighthouseChannel = lighthouseChannel;
   }
 
   /**

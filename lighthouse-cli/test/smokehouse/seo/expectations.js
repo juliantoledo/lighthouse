@@ -5,8 +5,12 @@
  */
 'use strict';
 const BASE_URL = 'http://localhost:10200/seo/';
-const URLSearchParams = require('../../../../lighthouse-core/lib/url-shim').URLSearchParams;
+const URLSearchParams = require('url').URLSearchParams;
 
+/**
+ * @param {[string, string][]} headers
+ * @return {string}
+ */
 function headersParam(headers) {
   const headerString = new URLSearchParams(headers).toString();
   return new URLSearchParams([['extra_header', headerString]]).toString();
@@ -49,7 +53,7 @@ module.exports = [
         score: 1,
       },
       'font-size': {
-        rawValue: true,
+        score: 1,
         details: {
           items: {
             length: 6,
@@ -72,8 +76,8 @@ module.exports = [
         score: 1,
       },
       'robots-txt': {
-        rawValue: true,
-        scoreDisplayMode: 'not-applicable',
+        score: null,
+        scoreDisplayMode: 'notApplicable',
       },
     },
   },
@@ -94,15 +98,16 @@ module.exports = [
         score: 1,
       },
       'font-size': {
-        rawValue: false,
-        explanation: 'Text is illegible because of a missing viewport config',
+        score: 0,
+        explanation:
+          'Text is illegible because there\'s no viewport meta tag optimized for mobile screens.',
       },
       'link-text': {
         score: 0,
-        displayValue: '3 links found',
+        displayValue: '4 links found',
         details: {
           items: {
-            length: 3,
+            length: 4,
           },
         },
       },
@@ -132,7 +137,7 @@ module.exports = [
       },
       'canonical': {
         score: 0,
-        explanation: 'Multiple conflicting URLs (https://example.com, https://example.com/)',
+        explanation: 'Multiple conflicting URLs (https://example.com/other, https://example.com/)',
       },
     },
   },
@@ -171,6 +176,48 @@ module.exports = [
       },
       'canonical': {
         score: null,
+      },
+    },
+  },
+  {
+    requestedUrl: BASE_URL + 'seo-tap-targets.html',
+    finalUrl: BASE_URL + 'seo-tap-targets.html',
+    audits: {
+      'tap-targets': {
+        score: (() => {
+          const PASSING_TAP_TARGETS = 11;
+          const TOTAL_TAP_TARGETS = 12;
+          const SCORE_FACTOR = 0.89;
+          return Math.floor(PASSING_TAP_TARGETS / TOTAL_TAP_TARGETS * SCORE_FACTOR * 100) / 100;
+        })(),
+        details: {
+          items: [
+            {
+              'tapTarget': {
+                'type': 'node',
+                'snippet': '<a ' +
+                 'style="display: block; width: 100px; height: 30px;background: #ddd;">' +
+                 '\n        too small target\n      </a>',
+                'path': '2,HTML,1,BODY,3,DIV,21,DIV,0,A',
+                'selector': 'body > div > div > a',
+              },
+              'overlappingTarget': {
+                'type': 'node',
+                'snippet': '<a ' +
+                  'style="display: block; width: 100px; height: 100px;background: #aaa;">' +
+                  '\n        big enough target\n      </a>',
+                'path': '2,HTML,1,BODY,3,DIV,21,DIV,1,A',
+                'selector': 'body > div > div > a',
+              },
+              'size': '100x30',
+              'width': 100,
+              'height': 30,
+              'tapTargetScore': 1440,
+              'overlappingTargetScore': 432,
+              'overlapScoreRatio': 0.3,
+            },
+          ],
+        },
       },
     },
   },

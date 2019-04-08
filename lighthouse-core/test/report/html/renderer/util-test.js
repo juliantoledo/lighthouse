@@ -7,6 +7,7 @@
 
 const assert = require('assert');
 const Util = require('../../../../report/html/renderer/util.js');
+const sampleResult = require('../../../results/sample_v2.json');
 
 const NBSP = '\xa0';
 
@@ -137,35 +138,23 @@ describe('util helpers', () => {
     assert.equal(descriptions.cpuThrottling, '2x slowdown (Simulated)');
   });
 
-  it('formats display values', () => {
-    const format = arg => Util.formatDisplayValue(arg);
-    assert.equal(format(undefined), '');
-    assert.equal(format('Foo %s %d'), 'Foo %s %d');
-    assert.equal(format([]), 'UNKNOWN');
-    assert.equal(format(['%s %s', 'Hello', 'formatDisplayValue']), 'Hello formatDisplayValue');
-    assert.equal(format(['%s%', 99.9]), '99.9%');
-    assert.equal(format(['%d%', 99.9]), '100%');
-    assert.equal(format(['%s ms', 12345.678]), '12,345.678 ms');
-    assert.equal(format(['%10d ms', 12345.678]), '12,350 ms');
-    assert.equal(format(['%.01d ms', 12345.678]), '12,345.68 ms');
-    // handle edge cases
-    assert.equal(format(['%.01s literal', 1234]), '%.01s literal');
-    assert.equal(format(['%1.01.1d junk', 1234]), '%1.01.1d junk');
-  });
+  describe('#prepareReportResult', () => {
+    it('corrects underscored `notApplicable` scoreDisplayMode', () => {
+      const clonedSampleResult = JSON.parse(JSON.stringify(sampleResult));
 
-  it('warns on improper display value formatting', () => {
-    assert.equal(Util.formatDisplayValue(['%s']), '%s');
-    assert.equal(Util.formatDisplayValue(['%s', 'foo', 'bar']), 'foo');
-    assert.deepEqual(consoleWarnCalls, [
-      'Not enough replacements given',
-      'Too many replacements given',
-    ]);
-  });
+      let notApplicableCount = 0;
+      Object.values(clonedSampleResult.audits).forEach(audit => {
+        if (audit.scoreDisplayMode === 'notApplicable') {
+          notApplicableCount++;
+          audit.scoreDisplayMode = 'not_applicable';
+        }
+      });
 
-  it('does not mutate the provided array', () => {
-    const displayValue = ['one:%s, two:%s', 'foo', 'bar'];
-    const cloned = JSON.parse(JSON.stringify(displayValue));
-    Util.formatDisplayValue(displayValue);
-    assert.deepStrictEqual(displayValue, cloned, 'displayValue was mutated');
+      assert.ok(notApplicableCount > 20); // Make sure something's being tested.
+
+      // Original audit results should be restored.
+      const preparedResult = Util.prepareReportResult(clonedSampleResult);
+      assert.deepStrictEqual(preparedResult.audits, sampleResult.audits);
+    });
   });
 });

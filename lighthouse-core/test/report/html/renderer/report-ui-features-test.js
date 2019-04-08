@@ -16,12 +16,10 @@ const DOM = require('../../../../report/html/renderer/dom.js');
 const DetailsRenderer = require('../../../../report/html/renderer/details-renderer.js');
 const ReportUIFeatures = require('../../../../report/html/renderer/report-ui-features.js');
 const CategoryRenderer = require('../../../../report/html/renderer/category-renderer.js');
-// lazy loaded because it depends on CategoryRenderer to be available globally
-let PerformanceCategoryRenderer = null;
 const CriticalRequestChainRenderer = require(
     '../../../../report/html/renderer/crc-details-renderer.js');
 const ReportRenderer = require('../../../../report/html/renderer/report-renderer.js');
-const sampleResultsOrig = require('../../../results/sample_v2.json');
+const sampleResults = require('../../../results/sample_v2.json');
 
 const TEMPLATE_FILE = fs.readFileSync(__dirname +
     '/../../../../report/html/templates.html', 'utf8');
@@ -31,7 +29,6 @@ const TEMPLATE_FILE_REPORT = fs.readFileSync(__dirname +
 describe('ReportUIFeatures', () => {
   let renderer;
   let reportUIFeatures;
-  let sampleResults;
 
   beforeAll(() => {
     global.URL = URL;
@@ -40,11 +37,12 @@ describe('ReportUIFeatures', () => {
     global.CriticalRequestChainRenderer = CriticalRequestChainRenderer;
     global.DetailsRenderer = DetailsRenderer;
     global.CategoryRenderer = CategoryRenderer;
-    if (!PerformanceCategoryRenderer) {
-      PerformanceCategoryRenderer =
+
+    // lazy loaded because they depend on CategoryRenderer to be available globally
+    global.PerformanceCategoryRenderer =
         require('../../../../report/html/renderer/performance-category-renderer.js');
-    }
-    global.PerformanceCategoryRenderer = PerformanceCategoryRenderer;
+    global.PwaCategoryRenderer =
+        require('../../../../report/html/renderer/pwa-category-renderer.js');
 
     // Stub out matchMedia for Node.
     global.matchMedia = function() {
@@ -53,9 +51,9 @@ describe('ReportUIFeatures', () => {
       };
     };
 
-    const document = jsdom.jsdom(TEMPLATE_FILE);
-    const documentReport = jsdom.jsdom(TEMPLATE_FILE_REPORT);
-    global.self = document.defaultView;
+    const document = new jsdom.JSDOM(TEMPLATE_FILE);
+    const documentReport = new jsdom.JSDOM(TEMPLATE_FILE_REPORT);
+    global.self = document.window;
     global.self.matchMedia = function() {
       return {
         addListener: function() {},
@@ -70,12 +68,11 @@ describe('ReportUIFeatures', () => {
       };
     };
 
-    const dom = new DOM(document);
-    const dom2 = new DOM(documentReport);
+    const dom = new DOM(document.window.document);
+    const dom2 = new DOM(documentReport.window.document);
     const detailsRenderer = new DetailsRenderer(dom);
     const categoryRenderer = new CategoryRenderer(dom, detailsRenderer);
     renderer = new ReportRenderer(dom, categoryRenderer);
-    sampleResults = Util.prepareReportResult(sampleResultsOrig);
     reportUIFeatures = new ReportUIFeatures(dom2);
   });
 
@@ -90,6 +87,7 @@ describe('ReportUIFeatures', () => {
     global.DetailsRenderer = undefined;
     global.CategoryRenderer = undefined;
     global.PerformanceCategoryRenderer = undefined;
+    global.PwaCategoryRenderer = undefined;
     global.window = undefined;
   });
 
@@ -100,7 +98,7 @@ describe('ReportUIFeatures', () => {
       renderer.renderReport(sampleResults, container);
 
       assert.equal(reportUIFeatures.json, undefined);
-      reportUIFeatures.initFeatures(Util.prepareReportResult(sampleResults));
+      reportUIFeatures.initFeatures(sampleResults);
       assert.ok(reportUIFeatures.json);
     });
   });

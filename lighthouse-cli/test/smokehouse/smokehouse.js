@@ -13,11 +13,12 @@ const path = require('path');
 const spawnSync = require('child_process').spawnSync;
 const yargs = require('yargs');
 const log = require('lighthouse-logger');
+const {collateResults, report} = require('./smokehouse-report');
 
 const PROTOCOL_TIMEOUT_EXIT_CODE = 67;
+const PAGE_HUNG_EXIT_CODE = 68;
+const INSECURE_DOCUMENT_REQUEST_EXIT_CODE = 69;
 const RETRIES = 3;
-const NUMERICAL_EXPECTATION_REGEXP = /^(<=?|>=?)((\d|\.)+)$/;
-
 
 /**
  * Attempt to resolve a path locally. If this fails, attempts to locate the path
@@ -42,10 +43,10 @@ function resolveLocalOrCwd(payloadPath) {
  * @param {string} url
  * @param {string} configPath
  * @param {boolean=} isDebug
- * @return {!LighthouseResults}
+ * @return {Smokehouse.ExpectedLHR}
  */
 function runLighthouse(url, configPath, isDebug) {
-  isDebug = isDebug || process.env.SMOKEHOUSE_DEBUG;
+  isDebug = isDebug || Boolean(process.env.LH_SMOKE_DEBUG);
 
   const command = 'node';
   const outputPath = `smokehouse-${Math.round(Math.random() * 100000)}.report.json`;
@@ -87,7 +88,9 @@ function runLighthouse(url, configPath, isDebug) {
   if (runResults.status === PROTOCOL_TIMEOUT_EXIT_CODE) {
     console.error(`Lighthouse debugger connection timed out ${RETRIES} times. Giving up.`);
     process.exit(1);
-  } else if (runResults.status !== 0) {
+  } else if (runResults.status !== 0
+     && runResults.status !== PAGE_HUNG_EXIT_CODE
+     && runResults.status !== INSECURE_DOCUMENT_REQUEST_EXIT_CODE) {
     console.error(`Lighthouse run failed with exit code ${runResults.status}. stderr to follow:`);
     console.error(runResults.stderr);
     process.exit(runResults.status);
@@ -98,203 +101,22 @@ function runLighthouse(url, configPath, isDebug) {
     console.error(`STDERR: ${runResults.stderr}`);
   }
 
+  if (runResults.status === PAGE_HUNG_EXIT_CODE) {
+    return {requestedUrl: url, finalUrl: url, errorCode: 'PAGE_HUNG', audits: {}};
+  }
+
+  if (runResults.status === INSECURE_DOCUMENT_REQUEST_EXIT_CODE) {
+    return {requestedUrl: url, finalUrl: url, errorCode: 'INSECURE_DOCUMENT_REQUEST', audits: {}};
+  }
+
   const lhr = fs.readFileSync(outputPath, 'utf8');
   if (isDebug) {
     console.log('LHR output available at: ', outputPath);
-  } else {
+  } else if (fs.existsSync(outputPath)) {
     fs.unlinkSync(outputPath);
   }
 
   return JSON.parse(lhr);
-}
-
-/**
- * Checks if the actual value matches the expectation. Does not recursively search. This supports
- *    - Greater than/less than operators, e.g. "<100", ">90"
- *    - Regular expressions
- *    - Strict equality
- *
- * @param {*} actual
- * @param {*} expected
- * @return {boolean}
- */
-function matchesExpectation(actual, expected) {
-  if (typeof actual === 'number' && NUMERICAL_EXPECTATION_REGEXP.test(expected)) {
-    const parts = expected.match(NUMERICAL_EXPECTATION_REGEXP);
-    const operator = parts[1];
-    const number = parseFloat(parts[2]);
-    switch (operator) {
-      case '>':
-        return actual > number;
-      case '>=':
-        return actual >= number;
-      case '<':
-        return actual < number;
-      case '<=':
-        return actual <= number;
-    }
-  } else if (typeof actual === 'string' && expected instanceof RegExp && expected.test(actual)) {
-    return true;
-  } else {
-    // Strict equality check, plus NaN equivalence.
-    return Object.is(actual, expected);
-  }
-}
-
-/**
- * Walk down expected result, comparing to actual result. If a difference is found,
- * the path to the difference is returned, along with the expected primitive value
- * and the value actually found at that location. If no difference is found, returns
- * null.
- *
- * Only checks own enumerable properties, not object prototypes, and will loop
- * until the stack is exhausted, so works best with simple objects (e.g. parsed JSON).
- * @param {string} path
- * @param {*} actual
- * @param {*} expected
- * @return {({path: string, actual: *, expected: *}|null)}
- */
-function findDifference(path, actual, expected) {
-  if (matchesExpectation(actual, expected)) {
-    return null;
-  }
-
-  // If they aren't both an object we can't recurse further, so this is the difference.
-  if (actual === null || expected === null || typeof actual !== 'object' ||
-      typeof expected !== 'object' || expected instanceof RegExp) {
-    return {
-      path,
-      actual,
-      expected,
-    };
-  }
-
-  // We only care that all expected's own properties are on actual (and not the other way around).
-  for (const key of Object.keys(expected)) {
-    // Bracket numbers, but property names requiring quotes will still be unquoted.
-    const keyAccessor = /^\d+$/.test(key) ? `[${key}]` : `.${key}`;
-    const keyPath = path + keyAccessor;
-    const expectedValue = expected[key];
-
-    if (!(key in actual)) {
-      return {path: keyPath, actual: undefined, expected: expectedValue};
-    }
-
-    const actualValue = actual[key];
-    const subDifference = findDifference(keyPath, actualValue, expectedValue);
-
-    // Break on first difference found.
-    if (subDifference) {
-      return subDifference;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Collate results into comparisons of actual and expected scores on each audit.
- * @param {{finalUrl: string, audits: !Array}} actual
- * @param {{finalUrl: string, audits: !Array}} expected
- * @return {{finalUrl: !Object, audits: !Array<!Object>}}
- */
-function collateResults(actual, expected) {
-  const auditNames = Object.keys(expected.audits);
-  const collatedAudits = auditNames.map(auditName => {
-    const actualResult = actual.audits[auditName];
-    if (!actualResult) {
-      throw new Error(`Config did not trigger run of expected audit ${auditName}`);
-    }
-
-    const expectedResult = expected.audits[auditName];
-    const diff = findDifference(auditName, actualResult, expectedResult);
-
-    return {
-      category: auditName,
-      actual: actualResult,
-      expected: expectedResult,
-      equal: !diff,
-      diff,
-    };
-  });
-
-  return {
-    finalUrl: {
-      category: 'final url',
-      actual: actual.finalUrl,
-      expected: expected.finalUrl,
-      equal: actual.finalUrl === expected.finalUrl,
-    },
-    audits: collatedAudits,
-  };
-}
-
-/**
- * Log the result of an assertion of actual and expected results.
- * @param {{category: string, equal: boolean, diff: ?Object, actual: boolean, expected: boolean}} assertion
- */
-function reportAssertion(assertion) {
-  const _toJSON = RegExp.prototype.toJSON;
-  // eslint-disable-next-line no-extend-native
-  RegExp.prototype.toJSON = RegExp.prototype.toString;
-
-  if (assertion.equal) {
-    console.log(`  ${log.greenify(log.tick)} ${assertion.category}: ` +
-        log.greenify(assertion.actual));
-  } else {
-    if (assertion.diff) {
-      const diff = assertion.diff;
-      const fullActual = JSON.stringify(assertion.actual, null, 2).replace(/\n/g, '\n      ');
-      const msg = `
-  ${log.redify(log.cross)} difference at ${log.bold}${diff.path}${log.reset}
-              expected: ${JSON.stringify(diff.expected)}
-                 found: ${JSON.stringify(diff.actual)}
-
-          found result:
-      ${log.redify(fullActual)}
-`;
-      console.log(msg);
-    } else {
-      console.log(`  ${log.redify(log.cross)} ${assertion.category}:
-              expected: ${JSON.stringify(assertion.expected)}
-                 found: ${JSON.stringify(assertion.actual)}
-`);
-    }
-  }
-
-  // eslint-disable-next-line no-extend-native
-  RegExp.prototype.toJSON = _toJSON;
-}
-
-/**
- * Log all the comparisons between actual and expected test results, then print
- * summary. Returns count of passed and failed tests.
- * @param {{finalUrl: !Object, audits: !Array<!Object>}} results
- * @return {{passed: number, failed: number}}
- */
-function report(results) {
-  reportAssertion(results.finalUrl);
-
-  let correctCount = 0;
-  let failedCount = 0;
-  results.audits.forEach(auditAssertion => {
-    if (auditAssertion.equal) {
-      correctCount++;
-    } else {
-      failedCount++;
-      reportAssertion(auditAssertion);
-    }
-  });
-
-  const plural = correctCount === 1 ? '' : 's';
-  const correctStr = `${correctCount} assertion${plural}`;
-  const colorFn = correctCount === 0 ? log.redify : log.greenify;
-  console.log(`  Correctly passed ${colorFn(correctStr)}\n`);
-
-  return {
-    passed: correctCount,
-    failed: failedCount,
-  };
 }
 
 const cli = yargs
@@ -304,11 +126,12 @@ const cli = yargs
     'expectations-path': 'The path to the expected audit results file',
     'debug': 'Save the artifacts along with the output',
   })
-  .require('config-path')
-  .require('expectations-path')
+  .require('config-path', true)
+  .require('expectations-path', true)
   .argv;
 
 const configPath = resolveLocalOrCwd(cli['config-path']);
+/** @type {Smokehouse.ExpectedLHR[]} */
 const expectations = require(resolveLocalOrCwd(cli['expectations-path']));
 
 // Loop sequentially over expectations, comparing against Lighthouse run, and

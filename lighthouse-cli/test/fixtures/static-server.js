@@ -9,11 +9,12 @@
 /* eslint-disable no-console */
 
 const http = require('http');
+const zlib = require('zlib');
 const path = require('path');
 const fs = require('fs');
 const parseQueryString = require('querystring').parse;
 const parseURL = require('url').parse;
-const URLSearchParams = require('../../../lighthouse-core/lib/url-shim').URLSearchParams;
+const URLSearchParams = require('url').URLSearchParams;
 const HEADER_SAFELIST = new Set(['x-robots-tag', 'link']);
 
 const lhRootDirPath = path.join(__dirname, '../../../');
@@ -24,7 +25,7 @@ function requestHandler(request, response) {
   const queryString = requestUrl.search && parseQueryString(requestUrl.search.slice(1));
   let absoluteFilePath = path.join(__dirname, filePath);
 
-  if (filePath.startsWith('/lighthouse-viewer')) {
+  if (filePath.startsWith('/dist/viewer')) {
     // Rewrite lighthouse-viewer paths to point to that location.
     absoluteFilePath = path.join(__dirname, '/../../../', filePath);
   }
@@ -68,9 +69,16 @@ function requestHandler(request, response) {
       headers['Content-Type'] = 'text/css';
     } else if (filePath.endsWith('.svg')) {
       headers['Content-Type'] = 'image/svg+xml';
+    } else if (filePath.endsWith('.png')) {
+      headers['Content-Type'] = 'image/png';
+    } else if (filePath.endsWith('.gif')) {
+      headers['Content-Type'] = 'image/gif';
+    } else if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+      headers['Content-Type'] = 'image/jpeg';
     }
 
     let delay = 0;
+    let useGzip = false;
     if (queryString) {
       const params = new URLSearchParams(queryString);
       // set document status-code
@@ -93,10 +101,19 @@ function requestHandler(request, response) {
         }
       }
 
+      if (params.has('gzip')) {
+        useGzip = Boolean(params.get('gzip'));
+      }
+
       // redirect url to new url if present
       if (params.has('redirect')) {
         return setTimeout(sendRedirect, delay, params.get('redirect'));
       }
+    }
+
+    if (useGzip) {
+      data = zlib.gzipSync(data);
+      headers['Content-Encoding'] = 'gzip';
     }
 
     response.writeHead(statusCode, headers);
